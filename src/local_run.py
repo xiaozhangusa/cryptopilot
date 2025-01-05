@@ -1,0 +1,77 @@
+import os
+import json
+import logging
+import time
+from bot_strategy.strategy import SwingStrategy
+from coinbase_api.client import CoinbaseAdvancedClient, OrderRequest
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def load_local_secrets():
+    """Load secrets from local file for development"""
+    secrets_file = os.getenv('SECRETS_FILE', 'secrets.json')
+    try:
+        with open(secrets_file) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        logger.warning(f"Secrets file {secrets_file} not found. Using dummy credentials for simulation.")
+        return {
+            "api_key": "dummy_key",
+            "api_secret": "dummy_secret",
+            "passphrase": "dummy_passphrase"
+        }
+
+def main():
+    trading_mode = os.getenv('TRADING_MODE', 'simulation')
+    secrets = load_local_secrets()
+    
+    logger.info(f"Starting trading bot in {trading_mode} mode")
+    
+    try:
+        coinbase_client = CoinbaseAdvancedClient(
+            api_key=secrets['api_key'],
+            api_secret=secrets['api_secret'],
+            passphrase=secrets['passphrase'],
+            mode=trading_mode
+        )
+        
+        strategy = SwingStrategy()
+        
+        while True:
+            try:
+                # Get market data
+                symbol = 'BTC-USD'
+                candles = coinbase_client.get_product_candles(symbol)
+                prices = [float(candle[4]) for candle in candles]
+                
+                # Generate trading signal
+                signal = strategy.generate_signal(symbol, prices)
+                
+                if signal:
+                    logger.info(f"Generated signal: {signal}")
+                    
+                    if trading_mode == 'simulation':
+                        logger.info(f"Simulation mode: Would execute {signal.action} "
+                                  f"for {symbol} at {signal.price}")
+                    else:
+                        order = OrderRequest(
+                            symbol=signal.symbol,
+                            side=signal.action.lower(),
+                            size=0.01
+                        )
+                        response = coinbase_client.place_order(order)
+                        logger.info(f"Order placed: {response}")
+                
+                # Wait for next iteration
+                time.sleep(300)  # 5 minutes
+                
+            except Exception as e:
+                logger.error(f"Error in trading loop: {str(e)}")
+                time.sleep(60)  # Wait before retrying
+                
+    except KeyboardInterrupt:
+        logger.info("Shutting down trading bot...")
+
+if __name__ == "__main__":
+    main() 

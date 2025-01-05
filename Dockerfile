@@ -2,17 +2,18 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install gcc for any compiled dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy application code
-COPY src/ ./src/
+# Copy the entire project first
+COPY . .
 
-# Copy and install requirements
-COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Install the package in development mode
+RUN pip install -e .
 
 # Environment variables
 ENV TRADING_MODE=simulation

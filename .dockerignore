@@ -39,4 +39,17 @@ documentation/
 *.jpg
 *.jpeg
 *.gif
-*.svg 
+*.svg
+
+# Ignore git files
+.git
+.gitignore
+
+# Ignore pytest cache
+.pytest_cache
+
+# Ignore test files
+tests/
+
+# Ignore other unnecessary files
+*.DS_Store 

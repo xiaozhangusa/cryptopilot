@@ -55,9 +55,10 @@ class DeploymentError(Exception):
     pass
 
 class Deployer:
-    def __init__(self, mode: str, environment: str):
+    def __init__(self, mode: str, environment: str, args):
         self.mode = mode  # 'local' or 'aws'
         self.environment = environment  # 'simulation' or 'production'
+        self.args = args
         self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.progress = ProgressIndicator()
 
@@ -277,7 +278,7 @@ def main():
         logger.setLevel(logging.DEBUG)
 
     try:
-        deployer = Deployer(args.mode, args.env)
+        deployer = Deployer(args.mode, args.env, args)
         deployer.check_prerequisites()
         deployer.validate_secrets()
         

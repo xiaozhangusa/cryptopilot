@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   trading-bot:
     build: .
@@ -6,10 +5,10 @@ services:
       - .:/app
       - ./secrets.json:/app/secrets.json:ro
     environment:
-      - PYTHONPATH=/app
+      - PYTHONPATH=/app/src
       - TRADING_MODE=simulation
       - SECRETS_FILE=/app/secrets.json
-    command: python -m src.local_run 
+    command: python -m local_run 
 
   test:
     build:

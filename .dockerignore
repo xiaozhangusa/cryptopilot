@@ -18,8 +18,6 @@ Dockerfile
 docker-compose.yml
 
 # Ignore deployment scripts and configs
-scripts/
-infrastructure/
 secrets.json
 
 # Ignore test files

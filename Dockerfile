@@ -13,11 +13,11 @@ COPY . .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Install the package in development mode
-RUN pip install -e .
+RUN pip install -e .[dev]
 
 # Environment variables
 ENV TRADING_MODE=simulation
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app/src
 
 # Command to run the bot
-CMD ["python", "-m", "src.local_run"] 
+CMD ["python", "-m", "local_run"] 

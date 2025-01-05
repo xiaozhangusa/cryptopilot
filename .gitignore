@@ -143,3 +143,9 @@ desktop.ini
 *.bak
 *.tmp
 *~ 
+
+# Test files
+.pytest_cache/
+.coverage
+htmlcov/
+*.test.* 

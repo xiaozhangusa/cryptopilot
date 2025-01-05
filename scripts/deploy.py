@@ -227,11 +227,15 @@ class Deployer:
                 universal_newlines=True
             )
             output = []
+            last_output_time = time.time()
             for line in process.stdout:
                 line = line.rstrip()
-                self.progress.stop()
                 logger.info(line)
-                self.progress.start("")
+                # Reset progress indicator when we get output
+                current_time = time.time()
+                if current_time - last_output_time > 3:
+                    self.progress.start("")
+                last_output_time = current_time
                 output.append(line)
             
             process.wait()

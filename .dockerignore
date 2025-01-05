@@ -23,12 +23,10 @@ infrastructure/
 secrets.json
 
 # Ignore test files
-tests/
 *.test.*
 
 # Ignore other unnecessary files
 *.md
-*.txt
 *.zip
 *.tar.gz
 *.rar

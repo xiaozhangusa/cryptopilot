@@ -3,9 +3,19 @@ services:
     build: .
     volumes:
       - ./src:/app/src
-      - ./tests:/app/tests
       - ./secrets.json:/app/secrets.json:ro
     environment:
       - TRADING_MODE=simulation
       - SECRETS_FILE=/app/secrets.json
     command: python -m src.local_run 
+
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+    command: python -m pytest
+    profiles:
+      - test 

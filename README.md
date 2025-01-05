@@ -78,6 +78,23 @@ docker-compose up --build
 docker-compose logs -f
 ```
 
+4. **Running Tests**
+```bash
+# Run all tests
+docker-compose run test
+
+# Run specific test file
+docker-compose run test python -m pytest tests/test_specific.py
+
+# Run tests with coverage
+docker-compose run test python -m pytest --cov=src tests/
+```
+
+The test environment:
+- Uses a separate Dockerfile (`Dockerfile.test`)
+- Includes additional test dependencies
+- Mounts test directory for real-time test development
+
 The bot will start in simulation mode, checking for trading signals every 5 minutes.
 
 ## Configuration
@@ -102,6 +119,28 @@ services:
     environment:
       - TRADING_MODE=simulation  # 'simulation' or 'production'
       - SECRETS_FILE=/app/secrets.json
+```
+
+### Test Configuration
+
+Test dependencies are managed in `requirements-dev.txt`:
+```text
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-mock>=3.10.0
+```
+
+Test environment variables can be configured in `docker-compose.yml`:
+```yaml
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+    command: python -m pytest
 ```
 
 ## AWS Deployment

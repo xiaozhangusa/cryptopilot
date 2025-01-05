@@ -33,6 +33,7 @@ trading-bot/
 ## Prerequisites
 
 - Docker and Docker Compose
+- Docker Compose V2 (comes with Docker Desktop)
 - Python 3.9+
 - Coinbase Advanced Trading API credentials
 - AWS CLI (for deployment)
@@ -41,29 +42,32 @@ trading-bot/
 ## Dependencies
 
 Required Python packages (from requirements.txt):
+```
 pandas>=1.3.0
 numpy>=1.21.0
 requests>=2.26.0
 boto3>=1.24.0
 python-dotenv>=0.19.0
-
+```
 
 ## Local Development Setup
 
 1. **Clone the repository**
-bash
+```bash
 git clone <repository-url>
 cd trading-bot
+```
 
 2. **Configure API credentials**
 
 Create a `secrets.json` file in the project root:
-json:README.md
+```json
 {
 "api_key": "your_sandbox_api_key",
 "api_secret": "your_sandbox_secret",
 "passphrase": "your_sandbox_passphrase"
 }
+```
 
 3. **Build and run with Docker**
 ```bash
@@ -93,43 +97,147 @@ class SwingStrategy:
 
 Configure in `docker-compose.yml`:
 ```yaml
-environment:
-  - TRADING_MODE=simulation  # 'simulation' or 'production'
-  - SECRETS_FILE=/app/secrets.json
+services:
+  trading-bot:
+    environment:
+      - TRADING_MODE=simulation  # 'simulation' or 'production'
+      - SECRETS_FILE=/app/secrets.json
 ```
 
 ## AWS Deployment
 
-### 1. Prepare Deployment Package
+## Deployment
+
+The project includes a deployment script that handles both local and AWS deployments. The script provides detailed logging and error handling.
+
+### Prerequisites
+
+For local deployment:
+- Docker and Docker Compose
+- Python 3.9+
+- Coinbase API credentials in `secrets.json`
+
+For AWS deployment:
+- AWS CLI configured
+- Terraform installed
+- AWS credentials with appropriate permissions
+- Secrets configured in AWS Secrets Manager
+
+### Usage
+
 ```bash
-mkdir -p deployment
-zip -r deployment/lambda.zip src/* requirements.txt
+# Make the deployment scripts executable
+chmod +x scripts/deploy.sh
+chmod +x scripts/deploy.py
+
+# Local deployment in simulation mode
+# Interactive mode (see logs in real-time)
+./scripts/deploy.sh --mode local --env simulation
+
+# Detached mode (run in background)
+./scripts/deploy.sh --mode local --env simulation --detach
+
+# Local deployment in production mode
+./scripts/deploy.sh --mode local --env production [--detach]
+
+# AWS deployment in simulation mode
+./scripts/deploy.sh --mode aws --env simulation [--detach]
+
+# AWS deployment in production mode
+./scripts/deploy.sh --mode aws --env production [--detach]
+
+# Enable verbose logging with -v flag
+./scripts/deploy.sh --mode aws --env simulation -v [--detach]
 ```
 
-### 2. Configure AWS Credentials
+### Deployment Options
+
+- `--mode`: Specify deployment target (`local` or `aws`)
+- `--env`: Specify environment (`simulation` or `production`)
+- `-v, --verbose`: Enable detailed logging output
+- `-d, --detach`: Run containers in background mode
+
+### Deployment Process
+
+The deployment script will:
+
+1. **Check Prerequisites**
+   - Verify required tools are installed
+   - Check AWS credentials (for AWS deployment)
+   - Validate Docker installation (for local deployment)
+
+2. **Validate Secrets**
+   - Check presence and format of secrets.json (local)
+   - Verify AWS Secrets Manager configuration (AWS)
+
+3. **Deploy Application**
+   - Local: Build and run Docker containers (interactive or detached mode)
+   - AWS: Create deployment package and apply Terraform configuration
+
+4. **Verify Deployment**
+   - Local: Confirm containers are running
+   - AWS: Verify Lambda function deployment
+
+### Monitoring Deployment
+
+Local deployment:
 ```bash
-aws configure
+# If running in interactive mode:
+# Logs will appear automatically in the console
+
+# If running in detached mode:
+# View container logs
+docker-compose logs -f
+
+# Check container status
+docker-compose ps
+
+# Stop containers
+docker-compose down
 ```
 
-### 3. Store API Credentials
-```bash
-# For simulation mode
-aws secretsmanager create-secret \
-    --name trading-bot/simulation/coinbase-credentials \
-    --secret-string '{"api_key":"sandbox_key","api_secret":"sandbox_secret","passphrase":"sandbox_passphrase"}'
+AWS deployment:
+- Check CloudWatch Logs in AWS Console
+- Monitor Lambda function metrics
+- View EventBridge execution history
 
-# For production mode
-aws secretsmanager create-secret \
-    --name trading-bot/production/coinbase-credentials \
-    --secret-string '{"api_key":"prod_key","api_secret":"prod_secret","passphrase":"prod_passphrase"}'
+### Troubleshooting
+
+The deployment script creates a `deployment.log` file with detailed information about the deployment process.
+
+Common issues:
+
+1. **Local Deployment**
+   ```bash
+   # Rebuild containers
+   docker-compose build --no-cache
+   
+   # Restart containers
+   docker-compose restart
+   ```
+
+2. **AWS Deployment**
+   ```bash
+   # Clean up Terraform state
+   cd infrastructure
+   terraform destroy
+   terraform init -reconfigure
+   
+   # Redeploy
+   ./scripts/deploy.sh --mode aws --env simulation
+   ```
+
+### Cleanup
+
+Local environment:
+```bash
+docker-compose down
 ```
 
-### 4. Deploy Infrastructure
+AWS environment:
 ```bash
 cd infrastructure
-terraform init
-terraform plan
-terraform apply
+terraform destroy
 ```
 
 ## Monitoring

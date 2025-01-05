@@ -1,0 +1,44 @@
+# Ignore Python cache and build files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+
+# Ignore local development files
+.env
+*.env
+*.local
+*.log
+logs/
+*.swp
+
+# Ignore Docker-related files
+Dockerfile
+docker-compose.yml
+
+# Ignore deployment scripts and configs
+scripts/
+infrastructure/
+secrets.json
+
+# Ignore test files
+tests/
+*.test.*
+
+# Ignore other unnecessary files
+*.md
+*.txt
+*.zip
+*.tar.gz
+*.rar
+
+# Ignore documentation
+docs/
+documentation/
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg 

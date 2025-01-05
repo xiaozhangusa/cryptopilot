@@ -1,0 +1,19 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "CryptoPilot Trading Bot API",
+        "version": "1.0.0"
+    },
+    "paths": {
+        "/trading/signal": {
+            "get": {
+                "summary": "Get trading signals",
+                "responses": {
+                    "200": {
+                        "description": "Trading signal generated successfully"
+                    }
+                }
+            }
+        }
+    }
+} 

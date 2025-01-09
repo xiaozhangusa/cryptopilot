@@ -13,12 +13,9 @@ class TradingSignal:
     indicators: Dict[str, float]
 
 class SwingStrategy:
-    def __init__(self, rsi_period: int = 14, 
-                 short_ma: int = 9, 
-                 long_ma: int = 21):
-        self.rsi_period = rsi_period
-        self.short_ma = short_ma
-        self.long_ma = long_ma
+    def __init__(self):
+        # ... initialization code ...
+        pass
 
     def calculate_rsi(self, prices: List[float]) -> float:
         df = pd.Series(prices)

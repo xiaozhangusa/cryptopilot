@@ -205,8 +205,8 @@ class CoinbaseAdvancedClient:
         
         Args:
             product_id: The trading pair (e.g., 'BTC-USD')
-            start: Start time in ISO 8601 format (required)
-            end: End time in ISO 8601 format (required)
+            start: Start time as Unix timestamp in seconds (required)
+            end: End time as Unix timestamp in seconds (required)
             granularity: Candle interval (UNKNOWN_GRANULARITY, ONE_MINUTE, FIVE_MINUTE, 
                         FIFTEEN_MINUTE, THIRTY_MINUTE, ONE_HOUR, TWO_HOUR, SIX_HOUR, ONE_DAY)
             limit: Maximum number of candles to return

@@ -43,8 +43,8 @@ def main():
                 # Get market data
                 symbol = 'BTC-USD'
                 # Get candles for the last hour
-                end = time.strftime('%Y-%m-%dT%H:%M:%SZ')  # Current time in ISO 8601
-                start = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - 3600))  # 1 hour ago
+                end = str(int(time.time()))  # Current time as Unix timestamp
+                start = str(int(time.time() - 3600))  # 1 hour ago as Unix timestamp
                 response = coinbase_client.rest_client.get_candles(
                     product_id=symbol,
                     start=start,

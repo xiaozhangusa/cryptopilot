@@ -1,118 +1,210 @@
-from typing import Dict, List, Optional
-import hmac
-import hashlib
-import time
-import base64
-import requests
+from typing import Dict, List, Optional, Callable
 from dataclasses import dataclass
+import logging
 import json
+from decimal import Decimal
+import asyncio
+import math
+
+from coinbase.rest import RESTClient
+from coinbase.websocket import WSClient
+# from coinbase.rest.models.enums import OrderSide, OrderType, TimeInForce
+# from coinbase.rest.models import CreateOrderResponse
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class OrderRequest:
+    """Request parameters for creating an order"""
     product_id: str
     side: str  # 'BUY' or 'SELL'
     order_type: str  # 'MARKET' or 'LIMIT'
-    price: Optional[float] = None
-    size: Optional[float] = None
+    quote_size: Optional[str] = None  # For market orders: amount in quote currency
+    base_size: Optional[str] = None   # For limit orders: amount in base currency
+    limit_price: Optional[str] = None # For limit orders: price per unit
+    client_order_id: Optional[str] = None
 
 class CoinbaseAdvancedClient:
-    BASE_URL = "https://api.coinbase.com/api/v3/brokerage"
+    """Wrapper for Coinbase Advanced Trading API using official SDK"""
     
-    def __init__(self, api_key: str, api_secret: str, passphrase: str):
-        self.api_key = api_key
-        self.api_secret = api_secret
-        self.passphrase = passphrase
-
-    def _generate_signature(self, timestamp: str, method: str, path: str, body: str = '') -> str:
-        message = f"{timestamp}{method}{path}{body}"
-        signature = hmac.new(
-            base64.b64decode(self.api_secret),
-            message.encode('utf-8'),
-            hashlib.sha256
-        )
-        return base64.b64encode(signature.digest()).decode('utf-8')
-
-    def _request(self, method: str, path: str, params: Dict = None, data: Dict = None) -> Dict:
-        timestamp = str(int(time.time()))
-        url = f"{self.BASE_URL}{path}"
+    def __init__(self, api_key: str, api_secret: str, verbose: bool = False):
+        """
+        Initialize the client with CDP API credentials
         
-        headers = {
-            'CB-ACCESS-KEY': self.api_key,
-            'CB-ACCESS-TIMESTAMP': timestamp,
-            'CB-ACCESS-PASSPHRASE': self.passphrase,
-            'Content-Type': 'application/json'
-        }
-
-        body = json.dumps(data) if data else ''
-        headers['CB-ACCESS-SIGN'] = self._generate_signature(timestamp, method, path, body)
-
-        response = requests.request(
-            method=method,
-            url=url,
-            headers=headers,
-            params=params,
-            json=data
+        Args:
+            api_key: CDP API key (format: "organizations/{org_id}/apiKeys/{key_id}")
+            api_secret: CDP API secret (PEM format private key)
+            verbose: Enable debug logging
+        """
+        self.rest_client = RESTClient(
+            api_key=api_key,
+            api_secret=api_secret,
+            verbose=verbose
         )
-        response.raise_for_status()
-        return response.json()
+        self.ws_client: Optional[WSClient] = None
+        self.order_filled = False
+        self.limit_order_id = None
+
+    def initialize_websocket(self, 
+                            product_ids: List[str],
+                            channels: List[str] = ["heartbeats", "ticker", "user"],
+                            verbose: bool = False):
+        """Initialize WebSocket connection for price monitoring"""
+        
+        def ws_handler(message: str):
+            try:
+                message_data = json.loads(message)
+                logger.debug(f"WebSocket message received: {message_data}")
+                
+                if 'channel' in message_data:
+                    if message_data['channel'] == 'ticker':
+                        events = message_data.get('events', [])
+                        for event in events:
+                            tickers = event.get('tickers', [])
+                            for ticker in tickers:
+                                product_id = ticker.get('product_id')
+                                price = ticker.get('price')
+                                logger.info(f"Price update for {product_id}: {price}")
+                    
+                    elif message_data['channel'] == 'user':
+                        orders = message_data['events'][0].get('orders', [])
+                        for order in orders:
+                            order_id = order.get('order_id')
+                            if order_id == self.limit_order_id and order.get('status') == 'FILLED':
+                                self.order_filled = True
+                                logger.info(f"Order {order_id} filled!")
+                                
+            except Exception as e:
+                logger.error(f"WebSocket handler error: {str(e)}")
+
+        try:
+            # Configure WebSocket client
+            self.ws_client = WSClient(
+                api_key=self.rest_client.api_key,
+                api_secret=self.rest_client.api_secret,
+                on_message=ws_handler,
+                verbose=verbose,
+                retry=True  # Enable automatic reconnection
+            )
+            
+            # Open connection and subscribe to channels
+            self.ws_client.open()
+            self.ws_client.subscribe(product_ids, channels)
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize WebSocket: {str(e)}")
+            raise
+
+    def wait_for_order_fill(self, timeout: Optional[int] = None):
+        """Wait for order to be filled
+        
+        Args:
+            timeout: Optional timeout in seconds. If None, waits indefinitely.
+        """
+        if timeout:
+            self.ws_client.sleep_with_exception_check(timeout)
+        else:
+            while not self.order_filled:
+                self.ws_client.sleep_with_exception_check(1)
 
     def get_accounts(self) -> Dict:
-        """List all accounts"""
-        return self._request('GET', '/accounts')
+        """Fetch all available trading accounts"""
+        try:
+            accounts = self.rest_client.get_accounts()
+            logger.info(f"Retrieved {len(accounts.accounts)} accounts")
+            return accounts.to_dict()
+        except Exception as e:
+            logger.error(f"Failed to fetch accounts: {str(e)}")
+            raise
 
-    def get_account(self, account_id: str) -> Dict:
-        """Get specific account details"""
-        return self._request('GET', f'/accounts/{account_id}')
+    def create_market_order(self, order: OrderRequest) -> Dict:
+        """Create a market order"""
+        try:
+            if order.side.lower() == 'buy':
+                response = self.rest_client.market_order_buy(
+                    client_order_id=order.client_order_id,
+                    product_id=order.product_id,
+                    quote_size=order.quote_size
+                )
+            else:
+                response = self.rest_client.market_order_sell(
+                    client_order_id=order.client_order_id,
+                    product_id=order.product_id,
+                    quote_size=order.quote_size
+                )
+            
+            if response['success']:
+                order_id = response['success_response']['order_id']
+                logger.info(f"Market order created: {order_id}")
+                
+                # Get fill information
+                fills = self.rest_client.get_fills(order_id=order_id)
+                logger.info(f"Order fills: {fills.to_dict()}")
+            else:
+                logger.error(f"Failed to create order: {response['error_response']}")
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Failed to create market order: {str(e)}")
+            raise
 
-    def get_best_bid_ask(self, product_ids: List[str]) -> Dict:
-        """Get best bid/ask for specified products"""
-        params = {'product_ids': ','.join(product_ids)}
-        return self._request('GET', '/best_bid_ask', params=params)
+    def create_limit_order(self, order: OrderRequest) -> Dict:
+        """Create a limit order"""
+        try:
+            if order.side.lower() == 'buy':
+                response = self.rest_client.limit_order_gtc_buy(
+                    client_order_id=order.client_order_id,
+                    product_id=order.product_id,
+                    base_size=order.base_size,
+                    limit_price=order.limit_price
+                )
+            else:
+                response = self.rest_client.limit_order_gtc_sell(
+                    client_order_id=order.client_order_id,
+                    product_id=order.product_id,
+                    base_size=order.base_size,
+                    limit_price=order.limit_price
+                )
+            
+            if response['success']:
+                order_id = response['success_response']['order_id']
+                logger.info(f"Limit order created: {order_id}")
+            else:
+                logger.error(f"Failed to create order: {response['error_response']}")
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Failed to create limit order: {str(e)}")
+            raise
 
-    def get_product_book(self, product_id: str, limit: int = 10) -> Dict:
-        """Get order book for a product"""
-        params = {
-            'product_id': product_id,
-            'limit': limit
-        }
-        return self._request('GET', '/product_book', params=params)
+    def close(self):
+        """Close WebSocket connection if active"""
+        if self.ws_client:
+            try:
+                self.ws_client.close()
+            except Exception as e:
+                logger.error(f"Error closing WebSocket: {str(e)}")
 
-    def get_product_candles(self, 
-                          product_id: str, 
-                          start: str = None, 
-                          end: str = None,
-                          granularity: str = '1D') -> Dict:
-        """Get historical candles for a product"""
-        params = {
-            'product_id': product_id,
-            'granularity': granularity
-        }
-        if start:
-            params['start'] = start
-        if end:
-            params['end'] = end
-        return self._request('GET', f'/products/{product_id}/candles', params=params)
+    def get_product_price(self, product_id: str) -> float:
+        """Get current price for a product"""
+        try:
+            product = self.rest_client.get_product(product_id)
+            return float(product["price"])
+        except Exception as e:
+            logger.error(f"Failed to get product price: {str(e)}")
+            raise
 
-    def create_order(self, order: OrderRequest) -> Dict:
-        """Create a new order"""
-        data = {
-            'product_id': order.product_id,
-            'side': order.side,
-            'order_configuration': {
-                order.order_type.lower(): {
-                    'quote_size': str(order.size) if order.size else None,
-                    'base_size': str(order.size) if order.size else None,
-                    'limit_price': str(order.price) if order.price else None
-                }
-            }
-        }
-        return self._request('POST', '/orders', data=data)
-
-    def get_fills(self, order_id: str = None, product_id: str = None) -> Dict:
-        """Get order fills"""
-        params = {}
-        if order_id:
-            params['order_id'] = order_id
-        if product_id:
-            params['product_id'] = product_id
-        return self._request('GET', '/orders/fills', params=params) 
+    def cancel_orders(self, order_ids: List[str]) -> Dict:
+        """Cancel one or more orders by ID"""
+        try:
+            response = self.rest_client.cancel_orders(order_ids=order_ids)
+            if response['success']:
+                logger.info(f"Successfully cancelled orders: {order_ids}")
+            else:
+                logger.error(f"Failed to cancel orders: {response['error_response']}")
+            return response
+        except Exception as e:
+            logger.error(f"Failed to cancel orders: {str(e)}")
+            raise 

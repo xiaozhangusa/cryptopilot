@@ -4,6 +4,7 @@ import logging
 import time
 from bot_strategy.strategy import SwingStrategy
 from coinbase_api.client import CoinbaseAdvancedClient, OrderRequest
+import sys
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -23,21 +24,20 @@ def load_local_secrets():
         }
 
 def main():
-    trading_mode = os.getenv('TRADING_MODE', 'simulation')
-    secrets = load_local_secrets()
-    
-    logger.info(f"Starting trading bot in {trading_mode} mode")
-    
     try:
+        trading_mode = os.getenv('TRADING_MODE', 'simulation')
+        logger.info(f"Starting trading bot in {trading_mode} mode")
+        
+        secrets = load_local_secrets()
         coinbase_client = CoinbaseAdvancedClient(
             api_key=secrets['api_key'],
-            api_secret=secrets['api_secret'],
-            passphrase=secrets['passphrase'],
-            mode=trading_mode
+            api_secret=secrets['api_secret']
         )
         
+        # Initialize strategy
         strategy = SwingStrategy()
         
+        # Trading loop
         while True:
             try:
                 # Get market data
@@ -70,8 +70,9 @@ def main():
                 logger.error(f"Error in trading loop: {str(e)}")
                 time.sleep(60)  # Wait before retrying
                 
-    except KeyboardInterrupt:
-        logger.info("Shutting down trading bot...")
+    except Exception as e:
+        logger.error(f"Error: {str(e)}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main() 

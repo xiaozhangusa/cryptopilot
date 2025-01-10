@@ -1,0 +1,2080 @@
+{
+	"info": {
+		"_postman_id": "3ac358fd-3bb0-48db-97a0-cf16334388bc",
+		"name": "Coinbase Developer Platform Advanced Trading Collection",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "23741415"
+	},
+	"item": [
+		{
+			"name": "Accounts",
+			"item": [
+				{
+					"name": "List Accounts",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									""
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/accounts",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"accounts"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Account",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									""
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/accounts/{UUID-HERE}",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"accounts",
+								"{UUID-HERE}"
+							]
+						}
+					},
+					"response": []
+				}
+			],
+			"auth": {
+				"type": "bearer",
+				"bearer": [
+					{
+						"key": "token",
+						"value": "{{token}}",
+						"type": "string"
+					}
+				]
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							""
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							""
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "Products",
+			"item": [
+				{
+					"name": "Get Best Bid/Ask",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/best_bid_ask?product_ids=ETH-USD",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"best_bid_ask"
+							],
+							"query": [
+								{
+									"key": "product_ids",
+									"value": "ETH-USD"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Product Book",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/product_book?product_id={trading-pair}&limit={The number of bid/asks to be returned}&aggregation_price_increment={The minimum price intervals at which buy and sell orders are grouped or combined in the order book}",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"product_book"
+							],
+							"query": [
+								{
+									"key": "product_id",
+									"value": "{trading-pair}"
+								},
+								{
+									"key": "limit",
+									"value": "{The number of bid/asks to be returned}"
+								},
+								{
+									"key": "aggregation_price_increment",
+									"value": "{The minimum price intervals at which buy and sell orders are grouped or combined in the order book}"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Products",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									""
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/products",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"products"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Product",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									""
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/products/{ProductID-HERE}",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"products",
+								"{ProductID-HERE}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Product Candles",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									""
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/products/{ProductID-HERE}/candles?start&end&granularity",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"products",
+								"{ProductID-HERE}",
+								"candles"
+							],
+							"query": [
+								{
+									"key": "start",
+									"value": null
+								},
+								{
+									"key": "end",
+									"value": null
+								},
+								{
+									"key": "granularity",
+									"value": null
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Market Trades",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/products/BTC-USD?limit=10",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"products",
+								"BTC-USD"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			],
+			"auth": {
+				"type": "bearer",
+				"bearer": [
+					{
+						"key": "token",
+						"value": "{{token}}",
+						"type": "string"
+					}
+				]
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							""
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							""
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "Orders",
+			"item": [
+				{
+					"name": "Create Order",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"client_order_id\": \"UUID For Order\",\n    \"product_id\": \"PRODCUTID-HERE\",\n    \"side\": [\"BUY\", \"SELL\"],\n    \"order_configuration\": {\n        \"limit_limit_gtc\": {\n        \"base_size\": \"\",\n        \"limit_price\":\"\"\n        }\n    }\n};"
+						},
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/orders",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"orders"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Cancel Orders",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"order_ids\": \"The order IDs that cancel requests should be initiated for.\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/orders/batch_cancel",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"orders",
+								"batch_cancel"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Edit Order",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"order_id\": \"The ID of the order. (required)\",\n    \"price\": \"The update price of the order.\",\n    \"size\": \"The updated size of the order.\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/orders/edit",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"orders",
+								"edit"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Edit Order Preview",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"order_id\": \"The ID of the order. (required)\",\n    \"price\": \"The update price of the order.\",\n    \"size\": \"The updated size of the order.\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/orders/edit_preview",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"orders",
+								"edit_preview"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Orders",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									""
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/orders/historical/batch",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"orders",
+								"historical",
+								"batch"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Fills",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/orders/historical/fills",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"orders",
+								"historical",
+								"fills"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Order",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"// set empty navigator and window objects",
+									"var navigator = {};",
+									"var window = {};",
+									"// import external jsrsasign-js library",
+									"eval(pm.collectionVariables.get(\"jsrsasign-js\"));",
+									"",
+									"// import private key and name for environment variables, parsing them",
+									"var privateKey = JSON.parse(pm.collectionVariables.get(\"privateKey\"));",
+									"var name = JSON.parse(pm.collectionVariables.get(\"name\"));",
+									"",
+									"// create header object",
+									"var header = {",
+									"    alg: \"ES256\",",
+									"    typ: \"JWT\",",
+									"    kid: name,",
+									"    nonce: Math.floor(Date.now() / 1000).toString(),",
+									"};",
+									"",
+									"// create uri string for current request",
+									"var host = pm.request.url.host",
+									"var path = pm.request.url.path",
+									"var hostStr = host.join(\".\");",
+									"var pathStr = path.join(\"/\");",
+									"var uri = pm.request.method + \" \" + hostStr + \"/\" + pathStr;",
+									"",
+									"// create data object",
+									"var data = {",
+									"    aud: ['retail_rest_api_proxy'],",
+									"    iss: \"cdp\",",
+									"    nbf: Math.floor(Date.now() / 1000),",
+									"    exp: Math.floor(Date.now() / 1000) + 10,",
+									"    sub: name,",
+									"    uri,",
+									"};",
+									"",
+									"// stringigy header and data",
+									"var sHeader = JSON.stringify(header);",
+									"var sPayload = JSON.stringify(data);",
+									"",
+									"// get the private key and sign to create JWT",
+									"var prvKey = KEYUTIL.getKey(privateKey);",
+									"var sJWT = KJUR.jws.JWS.sign(\"ES256\", sHeader, sPayload, prvKey);",
+									"",
+									"// set JWT to token environment variable and reference within 'Authorization - Bearer Token'",
+									"pm.environment.set(\"token\", sJWT);"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/orders/historical/{order_id}",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"orders",
+								"historical",
+								"{order_id}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Preview Order",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"product_id\": \"PRODCUTID-HERE\",\n    \"side\": [\"BUY\", \"SELL\"],\n    \"order_configuration\": {\n        \"limit_limit_gtc\": {\n        \"base_size\": \"\",\n        \"limit_price\":\"\"\n        }\n    }\n};",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/orders/preview",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"orders",
+								"preview"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Close Position",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"client_order_id\": \"The unique ID provided for the order (used for identification purposes) (required)\",\n    \"product_id\": \"The trading pair (e.g. 'BIT-28JUL23-CDE') (required)\",\n    \"size\": \"The amount of contracts that should be closed.\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/orders/close_position",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"orders",
+								"close_position"
+							]
+						}
+					},
+					"response": []
+				}
+			],
+			"auth": {
+				"type": "bearer",
+				"bearer": [
+					{
+						"key": "token",
+						"value": "{{token}}",
+						"type": "string"
+					}
+				]
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							""
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							""
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "Portfolio",
+			"item": [
+				{
+					"name": "List Portfolios",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									""
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/portfolios",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"portfolios"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Portfolio",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									""
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"PORTFOLIO NAME HERE\"\n};"
+						},
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/portfolios",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"portfolios"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Move Portfolio Funds",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									""
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n\"funds\": {\n    \"value\":,\n    \"currency\": \"\",\n    }      \n\"source_portfolio_uuid\": \"\",\n\"target_portfolio_uuid\": \"\",\n};"
+						},
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/portfolios/move_funds",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"portfolios",
+								"move_funds"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Portfolio Breakdown",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									""
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/portfolios/{portfolioID-HERE}",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"portfolios",
+								"{portfolioID-HERE}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Portfolio",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/portfolios/{portfolio_uuid}",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"portfolios",
+								"{portfolio_uuid}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Edit Portfolio",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/portfolios/{portfolio_uuid}",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"portfolios",
+								"{portfolio_uuid}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Futures Balance Summary",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/cfm/balance_summary",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"cfm",
+								"balance_summary"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Intraday Margin Setting",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": ""
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Set Intraday Margin Setting",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"setting\": \"Possible values: [INTRADAY_MARGIN_SETTING_UNSPECIFIED, INTRADAY_MARGIN_SETTING_STANDARD, INTRADAY_MARGIN_SETTING_INTRADAY]\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/cfm/intraday/margin_setting",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"cfm",
+								"intraday",
+								"margin_setting"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Current Margin Window",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/cfm/intraday/current_margin_window",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"cfm",
+								"intraday",
+								"current_margin_window"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Futures Positions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/cfm/positions",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"cfm",
+								"positions"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Futures Position",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/cfm/positions/{product_id}",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"cfm",
+								"positions",
+								"{product_id}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Schedule Futures Sweep",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"usd_amount\": \"The amount of USD to be swept. By default, sweeps all available excess funds.\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/cfm/sweeps/schedule",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"cfm",
+								"sweeps",
+								"schedule"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Futures Sweeps",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/cfm/sweeps",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"cfm",
+								"sweeps"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Cancel Pending Futures Sweep",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/cfm/sweeps",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"cfm",
+								"sweeps"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Allocate Portfolio",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"portfolio_uuid\": \"The portfolio UUID (required)\",\n    \"symbol\": \"The trading pair (e.g. 'BTC-PERP-INTX') (required)\",\n    \"amount\": \"The amount to be allocated for the specified isolated position (required)\",\n    \"currency\": \"The currency to be allocated for the specific isolated position (e.g. USD, BTC, etc) (required)\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/intx/allocate",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"intx",
+								"allocate"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Perpetuals Portfolio Summary",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/intx/portfolio/{portfolio_uuid}",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"intx",
+								"portfolio",
+								"{portfolio_uuid}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Perpetuals Positions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/intx/positions/{portfolio_uuid}",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"intx",
+								"positions",
+								"{portfolio_uuid}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Perpetuals Position",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/intx/positions/{portfolio_uuid}/{symbol}",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"intx",
+								"positions",
+								"{portfolio_uuid}",
+								"{symbol}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Portfolios Balances",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/intx/balances/{portfolio_uuid}",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"intx",
+								"balances",
+								"{portfolio_uuid}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Opt In or Out of Multi Asset Collateral",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"portfolio_uuid\": \"The portfolio UUID.\",\n    \"multi_asset_collateral_enabled\": \"Enable or disable Multi Asset Collateral. (Boolean\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/intx/multi_asset_collateral",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"intx",
+								"multi_asset_collateral"
+							]
+						}
+					},
+					"response": []
+				}
+			],
+			"auth": {
+				"type": "bearer",
+				"bearer": [
+					{
+						"key": "token",
+						"value": "{{token}}",
+						"type": "string"
+					}
+				]
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							""
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							""
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "Fees",
+			"item": [
+				{
+					"name": "Get Transactions Summary",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": ""
+						}
+					},
+					"response": []
+				}
+			],
+			"auth": {
+				"type": "bearer",
+				"bearer": [
+					{
+						"key": "token",
+						"value": "{{token}}",
+						"type": "string"
+					}
+				]
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"packages": {},
+						"exec": [
+							""
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"packages": {},
+						"exec": [
+							""
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "Converts",
+			"item": [
+				{
+					"name": "New Request",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"from_account\": \"The currency of the account to convert from (e.g. USD). (required)\",\n    \"to_account\": \"The currency of the account to convert to (e.g. USDC). (required)\",\n    \"amount\": \"The amount to be converted (denominated in the currency specified in from_account). (required)\",\n    \"trade_incentive_metadata\": {\n        \"user_incentive_id\": \"The user incentive id.\",\n        \"code_val\": \"A promo code for waiving fees.\"\n    }\n\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/convert/quote",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"convert",
+								"quote"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Convert Trade",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/convert/trade/{trade_id}",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"convert",
+								"trade",
+								"{trade_id}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Commit Convert Trade",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"from_account\": \"The currency of the account to convert from (e.g. USD). (required)\",\n    \"to_account\": \"The currency of the account to convert to (e.g. USDC). (required)\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/convert/trade/{trade_id}",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"convert",
+								"trade",
+								"{trade_id}"
+							]
+						}
+					},
+					"response": []
+				}
+			],
+			"auth": {
+				"type": "bearer",
+				"bearer": [
+					{
+						"key": "token",
+						"value": "{{token}}",
+						"type": "string"
+					}
+				]
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"packages": {},
+						"exec": [
+							""
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"packages": {},
+						"exec": [
+							""
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "Public",
+			"item": [
+				{
+					"name": "Get Server Time",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/time",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"time"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Public Product Book",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/market/product_book?product_id=BTC-USD&limit&aggregation_price_increment",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"market",
+								"product_book"
+							],
+							"query": [
+								{
+									"key": "product_id",
+									"value": "BTC-USD",
+									"description": "The trading pair (e.g. 'BTC-USD') required"
+								},
+								{
+									"key": "limit",
+									"value": null,
+									"description": "The number of bid/asks to be returned."
+								},
+								{
+									"key": "aggregation_price_increment",
+									"value": null,
+									"description": "The minimum price intervals at which buy and sell orders are grouped or combined in the order book."
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Public Products",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/market/products?limit&offset&product_type=[UNKNOWN_PRODUCT_TYPE, SPOT, FUTURE]&contract_expiry_type=[UNKNOWN_CONTRACT_EXPIRY_TYPE, EXPIRING, PERPETUAL]&expiring_contract_status=[UNKNOWN_EXPIRING_CONTRACT_STATUS, STATUS_UNEXPIRED, STATUS_EXPIRED, STATUS_ALL]&get_all_products",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"market",
+								"products"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": null,
+									"description": "The number of products to be returned."
+								},
+								{
+									"key": "offset",
+									"value": null,
+									"description": "The number of products to skip before returning."
+								},
+								{
+									"key": "product_type",
+									"value": "[UNKNOWN_PRODUCT_TYPE, SPOT, FUTURE]",
+									"description": "Only returns the orders matching this product type. By default, returns all product types."
+								},
+								{
+									"key": "contract_expiry_type",
+									"value": "[UNKNOWN_CONTRACT_EXPIRY_TYPE, EXPIRING, PERPETUAL]",
+									"description": "Only returns the orders matching the contract expiry type. Only applicable if product_type is set to FUTURE."
+								},
+								{
+									"key": "expiring_contract_status",
+									"value": "[UNKNOWN_EXPIRING_CONTRACT_STATUS, STATUS_UNEXPIRED, STATUS_EXPIRED, STATUS_ALL]",
+									"description": "Only returns contracts with this status (default is UNEXPIRED)."
+								},
+								{
+									"key": "get_all_products",
+									"value": null,
+									"description": "If true, return all products of all product types (including expired futures contracts)."
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Public Product",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/market/products/?product_id",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"market",
+								"products",
+								""
+							],
+							"query": [
+								{
+									"key": "product_id",
+									"value": null,
+									"description": "The trading pair (e.g. 'BTC-USD'). required"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Public Product Candles",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/market/products/{product_id}/candles?start&end&granularity=[UNKNOWN_GRANULARITY, ONE_MINUTE, FIVE_MINUTE, FIFTEEN_MINUTE, THIRTY_MINUTE, ONE_HOUR, TWO_HOUR, SIX_HOUR, ONE_DAY]&limit",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"market",
+								"products",
+								"{product_id}",
+								"candles"
+							],
+							"query": [
+								{
+									"key": "start",
+									"value": null,
+									"description": "The UNIX timestamp indicating the start of the time interval. required"
+								},
+								{
+									"key": "end",
+									"value": null,
+									"description": "The UNIX timestamp indicating the end of the time interval. required"
+								},
+								{
+									"key": "granularity",
+									"value": "[UNKNOWN_GRANULARITY, ONE_MINUTE, FIVE_MINUTE, FIFTEEN_MINUTE, THIRTY_MINUTE, ONE_HOUR, TWO_HOUR, SIX_HOUR, ONE_DAY]",
+									"description": "The timeframe each candle represents. required"
+								},
+								{
+									"key": "limit",
+									"value": null,
+									"description": "The number of candle buckets to be returned. By default, returns 350 (max 350)."
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Public Market Trades",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/market/products/{product_id}/ticker?limit&start&end",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"market",
+								"products",
+								"{product_id}",
+								"ticker"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": null,
+									"description": "The number of trades to be returned. required"
+								},
+								{
+									"key": "start",
+									"value": null,
+									"description": "The UNIX timestamp indicating the start of the time interval."
+								},
+								{
+									"key": "end",
+									"value": null,
+									"description": "The UNIX timestamp indicating the end of the time interval."
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			],
+			"auth": {
+				"type": "bearer",
+				"bearer": [
+					{
+						"key": "token",
+						"value": "{{token}}",
+						"type": "string"
+					}
+				]
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"packages": {},
+						"exec": [
+							""
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"packages": {},
+						"exec": [
+							""
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "Payment Methods",
+			"item": [
+				{
+					"name": "List Payment Methods",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/payment_methods",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"payment_methods"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Payment Method",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/payment_methods/?payment_method_id",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"payment_methods",
+								""
+							],
+							"query": [
+								{
+									"key": "payment_method_id",
+									"value": null,
+									"description": "The ID of the payment method. Refer to List Payment Methods for the list of all available payment methods and their corresponding IDs. required\n"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			],
+			"auth": {
+				"type": "bearer",
+				"bearer": [
+					{
+						"key": "token",
+						"value": "{{token}}",
+						"type": "string"
+					}
+				]
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"packages": {},
+						"exec": [
+							""
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"packages": {},
+						"exec": [
+							""
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "Data",
+			"item": [
+				{
+					"name": "Get API Key Permissions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://api.coinbase.com/api/v3/brokerage/key_permissions",
+							"protocol": "https",
+							"host": [
+								"api",
+								"coinbase",
+								"com"
+							],
+							"path": [
+								"api",
+								"v3",
+								"brokerage",
+								"key_permissions"
+							]
+						}
+					},
+					"response": []
+				}
+			],
+			"auth": {
+				"type": "bearer",
+				"bearer": [
+					{
+						"key": "token",
+						"value": "{{token}}",
+						"type": "string"
+					}
+				]
+			},
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"packages": {},
+						"exec": [
+							""
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"packages": {},
+						"exec": [
+							""
+						]
+					}
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// set empty navigator and window objects",
+					"var navigator = {};",
+					"var window = {};",
+					"// import external jsrsasign-js library",
+					"eval(pm.environment.get(\"jsrsasign-js\"));",
+					"",
+					"console.log(\"Raw privateKey:\", pm.environment.get(\"privateKey\"));",
+					"console.log(\"Raw name:\", pm.environment.get(\"name\"));",
+					"",
+					"// import private key and name for environment variables, parsing them",
+					"var privateKey = JSON.parse(pm.environment.get(\"privateKey\"));",
+					"var name = JSON.parse(pm.environment.get(\"name\"));",
+					"",
+					"console.log(\"Formatted key: \", privateKey)",
+					"console.log(\"Formatted name\", name)",
+					"",
+					"// create header object",
+					"var header = {",
+					"    alg: \"ES256\",",
+					"    typ: \"JWT\",",
+					"    kid: name,",
+					"    nonce: Math.floor(Date.now() / 1000).toString(),",
+					"};",
+					"",
+					"// create uri string for current request",
+					"var host = pm.request.url.host",
+					"var path = pm.request.url.path",
+					"var hostStr = host.join(\".\");",
+					"var pathStr = path.join(\"/\");",
+					"var uri = pm.request.method + \" \" + hostStr + \"/\" + pathStr;",
+					"",
+					"// create data object",
+					"var data = {",
+					"    iss: \"coinbase-cloud\",",
+					"    nbf: Math.floor(Date.now() / 1000),",
+					"    exp: Math.floor(Date.now() / 1000) + 120,",
+					"    sub: name,",
+					"    uri,",
+					"};",
+					"",
+					"// stringigy header and data",
+					"var sHeader = JSON.stringify(header);",
+					"var sPayload = JSON.stringify(data);",
+					"",
+					"// get the private key and sign to create JWT",
+					"var prvKey = KEYUTIL.getKey(privateKey);",
+					"var sJWT = KJUR.jws.JWS.sign(\"ES256\", sHeader, sPayload, prvKey);",
+					"",
+					"console.log(\"Generated Token: \", sJWT)",
+					"",
+					"// set JWT to token environment variable and reference within 'Authorization - Bearer Token'",
+					"pm.environment.set(\"token\", sJWT);"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	]
+}

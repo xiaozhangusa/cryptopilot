@@ -196,6 +196,42 @@ class CoinbaseAdvancedClient:
             logger.error(f"Failed to get product price: {str(e)}")
             raise
 
+    def get_product_candles(self, product_id: str, 
+                            start: str,
+                            end: str,
+                            granularity: str = "FIVE_MINUTE",
+                            limit: Optional[int] = None) -> List[Dict]:
+        """Get historical candles for a product
+        
+        Args:
+            product_id: The trading pair (e.g., 'BTC-USD')
+            start: Start time in ISO 8601 format (required)
+            end: End time in ISO 8601 format (required)
+            granularity: Candle interval (UNKNOWN_GRANULARITY, ONE_MINUTE, FIVE_MINUTE, 
+                        FIFTEEN_MINUTE, THIRTY_MINUTE, ONE_HOUR, TWO_HOUR, SIX_HOUR, ONE_DAY)
+            limit: Maximum number of candles to return
+        
+        Returns:
+            List of candles with [timestamp, open, high, low, close, volume]
+        """
+        try:
+            response = self.rest_client.get_candles(
+                product_id=product_id,
+                start=start,
+                end=end,
+                granularity=granularity,
+                limit=limit
+            )
+            
+            # Convert response to list of candles
+            candles = response.candles
+            logger.info(f"Retrieved {len(candles)} candles for {product_id}")
+            return candles
+            
+        except Exception as e:
+            logger.error(f"Failed to get product candles: {str(e)}")
+            raise
+
     def cancel_orders(self, order_ids: List[str]) -> Dict:
         """Cancel one or more orders by ID"""
         try:

@@ -42,8 +42,17 @@ def main():
             try:
                 # Get market data
                 symbol = 'BTC-USD'
-                candles = coinbase_client.get_product_candles(symbol)
-                prices = [float(candle[4]) for candle in candles]
+                # Get candles for the last hour
+                end = time.strftime('%Y-%m-%dT%H:%M:%SZ')  # Current time in ISO 8601
+                start = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - 3600))  # 1 hour ago
+                response = coinbase_client.rest_client.get_candles(
+                    product_id=symbol,
+                    start=start,
+                    end=end,
+                    granularity="FIVE_MINUTE",  # Using FIVE_MINUTE as it's more stable
+                    limit=300  # Maximum number of candles
+                )
+                prices = [float(candle.close) for candle in response.candles]
                 
                 # Generate trading signal
                 signal = strategy.generate_signal(symbol, prices)
@@ -56,11 +65,12 @@ def main():
                                   f"for {symbol} at {signal.price}")
                     else:
                         order = OrderRequest(
-                            symbol=signal.symbol,
+                            product_id=signal.symbol,
                             side=signal.action.lower(),
-                            size=0.01
+                            order_type='MARKET',
+                            quote_size='10'  # Trade with $10 for testing
                         )
-                        response = coinbase_client.place_order(order)
+                        response = coinbase_client.create_market_order(order)
                         logger.info(f"Order placed: {response}")
                 
                 # Wait for next iteration

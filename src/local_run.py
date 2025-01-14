@@ -42,42 +42,56 @@ def main():
             try:
                 # Get market data
                 symbol = 'BTC-USD'
+                print("\n" + "="*50)
+                print(f"📊 Fetching market data for {symbol}...")
+                
                 # Get candles for the last hour
-                end = str(int(time.time()))  # Current time as Unix timestamp
-                start = str(int(time.time() - 3600))  # 1 hour ago as Unix timestamp
+                end = str(int(time.time()))
+                start = str(int(time.time() - 3600))
                 response = coinbase_client.rest_client.get_candles(
                     product_id=symbol,
                     start=start,
                     end=end,
-                    granularity="FIVE_MINUTE",  # Using FIVE_MINUTE as it's more stable
-                    limit=300  # Maximum number of candles
+                    granularity="FIVE_MINUTE",
+                    limit=300
                 )
                 prices = [float(candle.close) for candle in response.candles]
+                print(f"📈 Latest price: ${prices[-1]:,.2f}")
+                print(f"📉 Price range: ${min(prices):,.2f} - ${max(prices):,.2f}")
                 
                 # Generate trading signal
+                print("\n🤖 Analyzing market conditions...")
                 signal = strategy.generate_signal(symbol, prices)
                 
                 if signal:
-                    logger.info(f"Generated signal: {signal}")
+                    print(f"\n🎯 Signal generated:")
+                    print(f"   Symbol: {signal.symbol}")
+                    print(f"   Action: {signal.action}")
+                    print(f"   Price: ${signal.price:,.2f}")
                     
                     if trading_mode == 'simulation':
-                        logger.info(f"Simulation mode: Would execute {signal.action} "
-                                  f"for {symbol} at {signal.price}")
+                        print(f"\n🔸 SIMULATION MODE:")
+                        print(f"   Would {signal.action} {symbol} at ${signal.price:,.2f}")
                     else:
+                        print(f"\n🔶 LIVE MODE: Executing trade...")
                         order = OrderRequest(
                             product_id=signal.symbol,
                             side=signal.action.lower(),
                             order_type='MARKET',
-                            quote_size='10'  # Trade with $10 for testing
+                            quote_size='10'
                         )
                         response = coinbase_client.create_market_order(order)
                         logger.info(f"Order placed: {response}")
-                
+                else:
+                    print("\n😴 No trading signals generated")
+                    
                 # Wait for next iteration
+                print(f"\n⏳ Waiting {300/60:.1f} minutes for next analysis...")
                 time.sleep(300)  # 5 minutes
                 
             except Exception as e:
                 logger.error(f"Error in trading loop: {str(e)}")
+                print(f"\n❌ Error: {str(e)}")
                 time.sleep(60)  # Wait before retrying
                 
     except Exception as e:

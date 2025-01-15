@@ -149,3 +149,8 @@ desktop.ini
 .coverage
 htmlcov/
 *.test.* 
+
+# Prevent accidental file renames
+src/coinbase_api/..py
+*..py
+*.py. 

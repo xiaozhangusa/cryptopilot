@@ -1,13 +1,23 @@
+version: '3.8'
+
 services:
   trading-bot:
     build: .
+    container_name: trading-bot-1
+    environment:
+      - TRADING_MODE=simulation
+    # Add logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Ensure container output is not buffered
+    tty: true
+    stdin_open: true
     volumes:
       - .:/app
       - ./secrets.json:/app/secrets.json:ro
-    environment:
-      - PYTHONPATH=/app/src
-      - TRADING_MODE=simulation
-      - SECRETS_FILE=/app/secrets.json
     command: python -m local_run 
 
   test:

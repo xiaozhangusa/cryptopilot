@@ -3,10 +3,17 @@ import json
 import logging
 import time
 from bot_strategy.strategy import SwingStrategy
+from bot_strategy.trade_analyzer import TradeAnalysis
 from coinbase_api.client import CoinbaseAdvancedClient, OrderRequest
 import sys
 
-logging.basicConfig(level=logging.INFO)
+# Configure logging to output to stdout with proper formatting
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    stream=sys.stdout  # Ensure logs go to stdout
+)
 logger = logging.getLogger(__name__)
 
 def load_local_secrets():
@@ -29,6 +36,7 @@ def main():
         logger.info(f"Starting trading bot in {trading_mode} mode")
         
         secrets = load_local_secrets()
+        logger.info(f"Secrets loaded successfully")
         coinbase_client = CoinbaseAdvancedClient(
             api_key=secrets['api_key'],
             api_secret=secrets['api_secret']
@@ -36,14 +44,15 @@ def main():
         
         # Initialize strategy
         strategy = SwingStrategy()
+        logger.info("Strategy initialized successfully")
         
         # Trading loop
         while True:
             try:
                 # Get market data
                 symbol = 'BTC-USD'
-                print("\n" + "="*50)
-                print(f"📊 Fetching market data for {symbol}...")
+                print("\n" + "="*50, flush=True)
+                print(f"📊 Fetching market data for {symbol}...", flush=True)
                 
                 # Get candles for the last hour
                 end = str(int(time.time()))
@@ -56,8 +65,8 @@ def main():
                     limit=300
                 )
                 prices = [float(candle.close) for candle in response.candles]
-                print(f"📈 Latest price: ${prices[-1]:,.2f}")
-                print(f"📉 Price range: ${min(prices):,.2f} - ${max(prices):,.2f}")
+                print(f"📈 Latest price: ${prices[-1]:,.2f}", flush=True)
+                print(f"📉 Price range: ${min(prices):,.2f} - ${max(prices):,.2f}", flush=True)
                 
                 # Generate trading signal
                 print("\n🤖 Analyzing market conditions...")
@@ -68,6 +77,14 @@ def main():
                     print(f"   Symbol: {signal.symbol}")
                     print(f"   Action: {signal.action}")
                     print(f"   Price: ${signal.price:,.2f}")
+                    
+                    # Analyze trade potential
+                    analyzer = TradeAnalysis(
+                        investment=10.0,  # $10 test trade
+                        entry_price=signal.price
+                    )
+                    analysis = analyzer.analyze(prices, signal.action)
+                    analyzer.print_analysis(analysis, signal.symbol, signal.action)
                     
                     if trading_mode == 'simulation':
                         print(f"\n🔸 SIMULATION MODE:")

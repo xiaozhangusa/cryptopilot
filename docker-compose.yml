@@ -1,11 +1,11 @@
-version: '3.8'
-
 services:
   trading-bot:
     build: .
     container_name: trading-bot-1
     environment:
-      - TRADING_MODE=simulation
+      - TRADING_MODE=${TRADING_MODE}
+      - TIMEFRAME=${TIMEFRAME}
+      - SECRETS_FILE=${SECRETS_FILE}
     # Add logging configuration
     logging:
       driver: "json-file"
@@ -18,7 +18,7 @@ services:
     volumes:
       - .:/app
       - ./secrets.json:/app/secrets.json:ro
-    command: python -m local_run 
+    command: python -m src.local_run 
 
   test:
     build:

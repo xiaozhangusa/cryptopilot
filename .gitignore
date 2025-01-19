@@ -154,3 +154,10 @@ htmlcov/
 src/coinbase_api/..py
 *..py
 *.py. 
+
+# Ignore environment variable files
+.env
+
+# Other ignored files
+htmlcov/
+*.test.* 

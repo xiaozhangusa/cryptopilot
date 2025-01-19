@@ -1,4 +1,4 @@
-FROM python:3.9-slim
+FROM python:3.8-slim
 
 WORKDIR /app
 
@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the entire project first
-COPY . .
+COPY . /app
 
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -20,4 +20,7 @@ ENV TRADING_MODE=simulation
 ENV PYTHONPATH=/app/src
 
 # Command to run the bot
-CMD ["python", "-m", "local_run"] 
+CMD ["python", "-m", "src.local_run"]
+
+# Make port 80 available to the world outside this container
+EXPOSE 80 

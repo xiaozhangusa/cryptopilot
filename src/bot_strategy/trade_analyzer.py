@@ -3,6 +3,7 @@ from typing import List
 import logging
 from datetime import datetime
 import time
+from .timeframes import Timeframe
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +36,26 @@ def print_price_chart(prices: List[float], width: int = 50):
 class TradeAnalysis:
     investment: float
     entry_price: float
+    timeframe: Timeframe
     trading_fee_rate: float = 0.006  # 0.6% total fees (entry + exit)
-    stop_loss_pct: float = 0.01  # 1% stop loss
+    
+    def __init__(self, 
+                 investment: float,
+                 entry_price: float,
+                 timeframe: Timeframe = Timeframe.FIVE_MIN):
+        self.investment = investment
+        self.entry_price = entry_price
+        self.timeframe = timeframe
+        self.trading_fee_rate = 0.006  # 0.6% total fees
+        
+        # Adjust stop loss based on timeframe
+        self.stop_loss_pct = {
+            Timeframe.FIVE_MIN: 0.01,      # 1% for 5min
+            Timeframe.ONE_HOUR: 0.02,      # 2% for 1h
+            Timeframe.SIX_HOUR: 0.03,      # 3% for 6h
+            Timeframe.TWELVE_HOUR: 0.04,   # 4% for 12h
+            Timeframe.ONE_DAY: 0.05,       # 5% for 1d
+        }[timeframe]
     
     def analyze(self, prices: List[float], action: str) -> dict:
         """Analyze trade potential and risks"""

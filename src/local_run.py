@@ -6,6 +6,7 @@ from bot_strategy.strategy import SwingStrategy
 from bot_strategy.trade_analyzer import TradeAnalysis
 from coinbase_api.client import CoinbaseAdvancedClient, OrderRequest
 import sys
+from bot_strategy.timeframes import Timeframe
 
 # Configure logging to output to stdout with proper formatting
 logging.basicConfig(
@@ -33,7 +34,9 @@ def load_local_secrets():
 def main():
     try:
         trading_mode = os.getenv('TRADING_MODE', 'simulation')
+        timeframe = Timeframe(os.getenv('TIMEFRAME', 'FIVE_MINUTE'))
         logger.info(f"Starting trading bot in {trading_mode} mode")
+        logger.info(f"Using {timeframe.value} timeframe")
         
         secrets = load_local_secrets()
         logger.info(f"Secrets loaded successfully")
@@ -43,7 +46,7 @@ def main():
         )
         
         # Initialize strategy
-        strategy = SwingStrategy()
+        strategy = SwingStrategy(timeframe=timeframe)
         logger.info("Strategy initialized successfully")
         
         # Trading loop
@@ -54,14 +57,15 @@ def main():
                 print("\n" + "="*50, flush=True)
                 print(f"📊 Fetching market data for {symbol}...", flush=True)
                 
-                # Get candles for the last hour
-                end = str(int(time.time()))
-                start = str(int(time.time() - 3600))
+                # Calculate start time based on timeframe
+                lookback_minutes = timeframe.minutes * (timeframe.lookback_periods + 14)  # Extra for RSI
+                start = str(int(time.time() - lookback_minutes * 60))
+                
                 response = coinbase_client.rest_client.get_candles(
                     product_id=symbol,
                     start=start,
-                    end=end,
-                    granularity="FIVE_MINUTE",
+                    end=str(int(time.time())),
+                    granularity=timeframe.value,
                     limit=300
                 )
                 prices = [float(candle.close) for candle in response.candles]

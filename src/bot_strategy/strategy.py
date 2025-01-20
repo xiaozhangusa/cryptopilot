@@ -138,3 +138,65 @@ class SwingStrategy:
         print(f"RSI = 100 - (100 / (1 + RS)) = {rsi:.2f}")
         
         # Remove price range from here as it's now shown earlier 
+
+    def analyze_rsi_swings(self, prices: List[float], timestamps: List[int]) -> dict:
+        """Analyze RSI swings from oversold to overbought conditions
+        
+        Args:
+            prices: List of historical prices
+            timestamps: List of corresponding timestamps
+            
+        Returns:
+            Dictionary containing swing statistics:
+            - avg_swing: Average price movement %
+            - min_swing: Smallest successful swing %
+            - max_swing: Largest swing %
+            - avg_duration: Average swing duration
+            - success_rate: % of swings that reached overbought
+            - recent_swings: Last 3 swings for reference
+        """
+        # Calculate RSI for each period
+        rsi_values = []
+        for i in range(self.rsi_period, len(prices)):
+            window = prices[i-self.rsi_period:i+1]
+            rsi = self.calculate_rsi(window)
+            rsi_values.append(rsi)
+        
+        # Find completed oversold to overbought swings
+        swings = []
+        in_swing = False
+        swing_start_price = 0
+        swing_start_time = 0
+        
+        for i in range(len(rsi_values)-1):
+            if not in_swing and rsi_values[i] < self.oversold:
+                in_swing = True
+                swing_start_price = prices[i+self.rsi_period]
+                swing_start_time = timestamps[i+self.rsi_period]
+            elif in_swing and rsi_values[i] > self.overbought:
+                swing_end_price = prices[i+self.rsi_period]
+                swing_end_time = timestamps[i+self.rsi_period]
+                swing_pct = (swing_end_price - swing_start_price) / swing_start_price
+                swings.append({
+                    'start_price': swing_start_price,
+                    'end_price': swing_end_price,
+                    'pct_change': swing_pct,
+                    'duration': swing_end_time - swing_start_time
+                })
+                in_swing = False
+        
+        if not swings:
+            return None
+        
+        # Calculate swing statistics
+        pct_changes = [s['pct_change'] for s in swings]
+        durations = [s['duration'] for s in swings]
+        
+        return {
+            'avg_swing': np.mean(pct_changes),
+            'min_swing': min(pct_changes),
+            'max_swing': max(pct_changes),
+            'avg_duration': np.mean(durations),
+            'success_rate': len([p for p in pct_changes if p > 0]) / len(pct_changes),
+            'recent_swings': swings[-3:]  # Last 3 swings for reference
+        } 

@@ -134,10 +134,41 @@ The bot can be configured using environment variables:
 
 The bot implements a swing trading strategy based on:
 - RSI (Relative Strength Index)
-- Moving Average Crossover
-- Price action analysis
+- Support and Resistance levels
+- Risk/Reward analysis
 
-Configure strategy parameters in `src/bot_strategy/strategy.py`.
+### Trading Criteria
+
+A trade signal is only executed when ALL of the following criteria are met:
+
+1. **Technical Conditions**
+   - For BUY signals:
+     - Price near identified support level
+     - RSI indicates oversold condition
+     - Clear potential upside identified
+   - For SELL signals:
+     - Price near identified resistance level
+     - RSI indicates overbought condition
+     - Clear potential downside identified
+
+2. **Risk Management**
+   - Risk/Reward ratio ≥ 1:2 (minimum)
+   - Profit/Cost ratio > 5%
+   - Net profit positive after fees
+   - Stop loss within timeframe limits:
+     - 5-minute: 1%
+     - 1-hour: 2%
+     - 6-hour: 3%
+     - 12-hour: 4%
+     - 1-day: 5%
+
+3. **Risk Rating System**
+   - 🌟 Excellent: 1:3+ ratio, >10% profit potential
+   - ✅ Good: 1:2+ ratio, >5% profit potential
+   - ⚠️ Marginal: 1:1.5+ ratio, >2% profit potential
+   - ❌ Poor: Anything less
+
+The strategy adapts its parameters based on the selected timeframe to optimize for different trading horizons while maintaining strict risk management principles.
 
 ## API Integration
 

@@ -16,7 +16,7 @@ def print_price_chart(prices: List[float], width: int = 50):
     max_price = max(prices)
     price_range = max_price - min_price
     
-    print("\n📊 Price Chart (last hour):")
+    print("\n📊 Price Chart:")
     print(f"${max_price:,.2f} ┐")
     
     for i in range(5):  # 5 price levels
@@ -29,8 +29,6 @@ def print_price_chart(prices: List[float], width: int = 50):
         print(f"${price:,.2f} {''.join(line)}")
     
     print(f"${min_price:,.2f} ┘")
-    print(f"Time: {datetime.fromtimestamp(time.time() - 3600).strftime('%H:%M')} "
-          f"-> {datetime.fromtimestamp(time.time()).strftime('%H:%M')}")
 
 @dataclass
 class TradeAnalysis:
@@ -57,27 +55,31 @@ class TradeAnalysis:
             Timeframe.ONE_DAY: 0.05,       # 5% for 1d
         }[timeframe]
     
-    def analyze(self, prices: List[float], action: str) -> dict:
-        """Analyze trade potential and risks"""
+    def _calculate_metrics(self, prices: List[float], action: str) -> dict:
+        """Calculate all trading metrics"""
         qty = self.investment / self.entry_price
         trading_fees = self.investment * self.trading_fee_rate
         
         # Calculate support/resistance from recent prices
-        support = min(prices[-20:])  # Using last 20 candles
-        resistance = max(prices[-20:])
+        support = min(prices[-20:])    # Using last 20 candles
+        resistance = max(prices[-20:]) # Using last 20 candles
         
-        # Calculate stop loss and take profit levels
+        # RSI-based profit targets
         if action == 'BUY':
             stop_loss = support * (1 - self.stop_loss_pct)
-            take_profit = self.entry_price + (self.entry_price - support)
+            # Target the overbought zone (resistance area)
+            take_profit = resistance  # Sell when price reaches recent high/resistance
+            
             max_loss = (stop_loss - self.entry_price) * qty
             potential_profit = (take_profit - self.entry_price) * qty
         else:  # SELL
             stop_loss = resistance * (1 + self.stop_loss_pct)
-            take_profit = self.entry_price - (resistance - self.entry_price)
+            # Target the oversold zone (support area)
+            take_profit = support  # Buy back when price reaches recent low/support
+            
             max_loss = (self.entry_price - stop_loss) * qty
             potential_profit = (self.entry_price - take_profit) * qty
-            
+        
         net_profit = potential_profit - trading_fees
         profit_cost_ratio = net_profit / (self.investment + trading_fees)
         risk_reward_ratio = abs(potential_profit / max_loss) if max_loss != 0 else float('inf')
@@ -96,11 +98,40 @@ class TradeAnalysis:
             'resistance': resistance
         }
     
-    def print_analysis(self, analysis: dict, symbol: str, action: str):
-        """Print formatted trade analysis"""
-        # Print price chart
-        print_price_chart(prices)
+    def analyze(self, prices: List[float], action: str) -> dict:
+        """Analyze trade potential and risks"""
+        analysis = self._calculate_metrics(prices, action)
         
+        # Add stricter trade viability check
+        analysis['is_viable'] = (
+            analysis['risk_reward_ratio'] >= 2.0 and    # At least 1:2 risk/reward
+            analysis['profit_cost_ratio'] > 0.05 and    # >5% profit over costs
+            analysis['net_profit'] > 0 and              # Must be profitable after fees
+            abs(analysis['max_loss']) <= (              # Stop loss within timeframe limit
+                self.investment * self.stop_loss_pct
+            )
+        )
+        
+        # Add risk rating
+        if analysis['risk_reward_ratio'] >= 3.0 and analysis['profit_cost_ratio'] > 0.10:
+            analysis['risk_rating'] = "🌟 Excellent"
+        elif analysis['risk_reward_ratio'] >= 2.0 and analysis['profit_cost_ratio'] > 0.05:
+            analysis['risk_rating'] = "✅ Good"
+        elif analysis['risk_reward_ratio'] >= 1.5 and analysis['profit_cost_ratio'] > 0.02:
+            analysis['risk_rating'] = "⚠️ Marginal"
+        else:
+            analysis['risk_rating'] = "❌ Poor"
+        
+        return analysis
+    
+    def print_analysis(self, analysis: dict, symbol: str, action: str, prices: List[float] = None):
+        """Print formatted trade analysis exactly matching the desired output"""
+        # Remove price chart from here since it's shown earlier
+        print("\n🎯 Signal generated:")
+        print(f"   Symbol: {symbol}")
+        print(f"   Action: {action}")
+        print(f"   Price: ${self.entry_price:,.2f}")
+
         print("\n💰 Trade Analysis:")
         print(f"   Investment: ${self.investment:.2f}")
         print(f"   Quantity: {analysis['qty']:.8f} {symbol.split('-')[0]}")
@@ -108,12 +139,14 @@ class TradeAnalysis:
         print(f"   Entry Price: ${self.entry_price:.2f}")
         print(f"   Stop Loss: ${analysis['stop_loss']:.2f}")
         print(f"   Take Profit: ${analysis['take_profit']:.2f}")
-        print(f"\n📊 Risk Analysis:")
+
+        print("\n📊 Risk Analysis:")
         print(f"   Max Loss: ${abs(analysis['max_loss']):.2f}")
         print(f"   Potential Profit: ${analysis['potential_profit']:.2f}")
         print(f"   Net Profit: ${analysis['net_profit']:.2f}")
         print(f"   Risk/Reward Ratio: 1:{analysis['risk_reward_ratio']:.2f}")
         print(f"   Profit/Cost Ratio: {analysis['profit_cost_ratio']:.2%}")
+        print(f"   Risk Rating: {analysis['risk_rating']}")
         
         # Print efficiency rating
         if analysis['profit_cost_ratio'] < 0.01:  # 1%
@@ -124,12 +157,17 @@ class TradeAnalysis:
             print("   Efficiency: ✅ Decent profit potential")
         else:
             print("   Efficiency: 🌟 Excellent profit potential")
+
+        print("\n📋 Trading Criteria Met:")
+        if not analysis['is_viable']:
+            print("   ❌ Trade rejected due to poor risk/reward")
+            return
         
-        print(f"\n📋 Trading Criteria Met:")
         if action == 'BUY':
             print(f"   ✓ Price near support level (${analysis['support']:.2f})")
             print(f"   ✓ RSI indicates oversold condition")
             print(f"   ✓ Potential upside: {(analysis['take_profit']/self.entry_price - 1):.1%}")
+            print(f"   ✓ Risk/Reward ratio acceptable: 1:{analysis['risk_reward_ratio']:.2f}")
         else:
             print(f"   ✓ Price near resistance level (${analysis['resistance']:.2f})")
             print(f"   ✓ RSI indicates overbought condition")

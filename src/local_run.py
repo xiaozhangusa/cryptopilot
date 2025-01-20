@@ -7,6 +7,7 @@ from bot_strategy.trade_analyzer import TradeAnalysis
 from coinbase_api.client import CoinbaseAdvancedClient, OrderRequest
 import sys
 from bot_strategy.timeframes import Timeframe
+from bot_strategy.utils import print_price_chart
 
 # Configure logging to output to stdout with proper formatting
 logging.basicConfig(
@@ -60,35 +61,43 @@ def main():
                 # Calculate start time based on timeframe
                 lookback_minutes = timeframe.minutes * (timeframe.lookback_periods + 14)  # Extra for RSI
                 start = str(int(time.time() - lookback_minutes * 60))
+                end = str(int(time.time()))
                 
+                # Get candles for analysis
                 response = coinbase_client.rest_client.get_candles(
                     product_id=symbol,
                     start=start,
-                    end=str(int(time.time())),
+                    end=end,
                     granularity=timeframe.value,
                     limit=300
                 )
+
                 prices = [float(candle.close) for candle in response.candles]
-                print(f"📈 Latest price: ${prices[-1]:,.2f}", flush=True)
-                print(f"📉 Price range: ${min(prices):,.2f} - ${max(prices):,.2f}", flush=True)
+                timestamps = [int(candle.start) for candle in response.candles]
                 
+                # Print price information
+                print(f"📈 Latest price: ${prices[-1]:,.2f}", flush=True)
+                print(f"\n💹 Price Range:")
+                print(f"High: ${max(prices):.2f}")
+                print(f"Low:  ${min(prices):.2f}")
+                print(f"Current: ${prices[-1]:.2f}")
+
+                # Print price chart
+                print_price_chart(prices)
+
                 # Generate trading signal
                 print("\n🤖 Analyzing market conditions...")
-                signal = strategy.generate_signal(symbol, prices)
+                signal = strategy.generate_signal(symbol, prices, timestamps)
                 
                 if signal:
-                    print(f"\n🎯 Signal generated:")
-                    print(f"   Symbol: {signal.symbol}")
-                    print(f"   Action: {signal.action}")
-                    print(f"   Price: ${signal.price:,.2f}")
-                    
                     # Analyze trade potential
                     analyzer = TradeAnalysis(
                         investment=10.0,  # $10 test trade
-                        entry_price=signal.price
+                        entry_price=signal.price,
+                        timeframe=timeframe  # Pass the timeframe
                     )
                     analysis = analyzer.analyze(prices, signal.action)
-                    analyzer.print_analysis(analysis, signal.symbol, signal.action)
+                    analyzer.print_analysis(analysis, signal.symbol, signal.action, prices)
                     
                     if trading_mode == 'simulation':
                         print(f"\n🔸 SIMULATION MODE:")

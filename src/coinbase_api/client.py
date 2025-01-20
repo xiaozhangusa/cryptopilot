@@ -5,6 +5,9 @@ import json
 from decimal import Decimal
 import asyncio
 import math
+from datetime import datetime
+import pytz
+import time
 
 from coinbase.rest import RESTClient
 from coinbase.websocket import WSClient
@@ -12,6 +15,9 @@ from coinbase.websocket import WSClient
 # from coinbase.rest.models import CreateOrderResponse
 
 logger = logging.getLogger(__name__)
+
+est_tz = pytz.timezone('America/New_York')
+utc_tz = pytz.UTC
 
 @dataclass
 class OrderRequest:
@@ -196,41 +202,99 @@ class CoinbaseAdvancedClient:
             logger.error(f"Failed to get product price: {str(e)}")
             raise
 
-    def get_product_candles(self, product_id: str, 
-                            start: str,
-                            end: str,
-                            granularity: str = "FIVE_MINUTE",
-                            limit: Optional[int] = None) -> List[Dict]:
-        """Get historical candles for a product
-        
+    def get_granularity_seconds(self, granularity: str) -> int:
+        """Convert granularity string to seconds"""
+        return {
+            'ONE_MINUTE': 60,
+            'FIVE_MINUTE': 300,        # 60 * 5
+            'FIFTEEN_MINUTE': 900,     # 60 * 15
+            'THIRTY_MINUTE': 1800,     # 60 * 30
+            'ONE_HOUR': 3600,         # 60 * 60
+            'TWO_HOUR': 7200,         # 60 * 60 * 2
+            'SIX_HOUR': 21600,        # 60 * 60 * 6
+            'ONE_DAY': 86400          # 60 * 60 * 24
+        }[granularity]
+
+    def get_product_candles(self, product_id: str, granularity: str = 'FIVE_MINUTE') -> List[dict]:
+        """Get historical price candles for a cryptocurrency product.
+
+        This method retrieves OHLCV (Open, High, Low, Close, Volume) candle data for a specified
+        trading pair over a time period. The time period is calculated based on the number of
+        periods needed for analysis (default 20 periods for RSI calculation) and the specified
+        granularity.
+
         Args:
-            product_id: The trading pair (e.g., 'BTC-USD')
-            start: Start time as Unix timestamp in seconds (required)
-            end: End time as Unix timestamp in seconds (required)
-            granularity: Candle interval (UNKNOWN_GRANULARITY, ONE_MINUTE, FIVE_MINUTE, 
-                        FIFTEEN_MINUTE, THIRTY_MINUTE, ONE_HOUR, TWO_HOUR, SIX_HOUR, ONE_DAY)
-            limit: Maximum number of candles to return
-        
+            product_id (str): The trading pair identifier (e.g., 'BTC-USD', 'ETH-USD')
+            granularity (str, optional): The time interval for each candle. Defaults to 'FIVE_MINUTE'.
+                Valid values:
+                - 'ONE_MINUTE': 1-minute candles
+                - 'FIVE_MINUTE': 5-minute candles
+                - 'FIFTEEN_MINUTE': 15-minute candles
+                - 'THIRTY_MINUTE': 30-minute candles
+                - 'ONE_HOUR': 1-hour candles
+                - 'TWO_HOUR': 2-hour candles
+                - 'SIX_HOUR': 6-hour candles
+                - 'ONE_DAY': 24-hour candles
+
         Returns:
-            List of candles with [timestamp, open, high, low, close, volume]
+            List[dict]: A list of candle data sorted by time (newest first). Each candle contains:
+                - start: Unix timestamp for the start of the candle
+                - low: Lowest price during the period
+                - high: Highest price during the period
+                - open: Opening price for the period
+                - close: Closing price for the period
+                - volume: Trading volume during the period
+
+        Raises:
+            Exception: If there's an error fetching the candle data from Coinbase API.
+            The exception is caught and logged, returning an empty list.
+
+        Example:
+            >>> client = CoinbaseAdvancedClient(api_key, api_secret)
+            >>> candles = client.get_product_candles('BTC-USD', 'ONE_HOUR')
+            >>> if candles:
+            >>>     print(f"Most recent BTC price: ${candles[0].close}")
         """
         try:
+            # 1. Get current time in Unix timestamp (seconds since epoch)
+            end = int(time.time())
+            
+            # 2. Define how many candles we need for analysis
+            periods_needed = 20  # For RSI calculation
+            
+            # 3. Convert timeframe to seconds
+            granularity_secs = self.get_granularity_seconds(granularity)
+            
+            # 4. Calculate start time by going back (periods * interval) seconds
+            start = end - (periods_needed * granularity_secs)
+            
+            # 5. Log the time range we're requesting (in EST)
+            start_time = datetime.fromtimestamp(start, utc_tz).astimezone(est_tz)
+            end_time = datetime.fromtimestamp(end, utc_tz).astimezone(est_tz)
+            logger.info(f"Fetching candles from {start_time} to {end_time} EST")
+            
+            # 6. Make API request to Coinbase
             response = self.rest_client.get_candles(
                 product_id=product_id,
-                start=start,
-                end=end,
-                granularity=granularity,
-                limit=limit
+                start=str(start),
+                end=str(end),
+                granularity=granularity
             )
             
-            # Convert response to list of candles
-            candles = response.candles
-            logger.info(f"Retrieved {len(candles)} candles for {product_id}")
+            # 7. Sort candles newest first
+            candles = sorted(response.candles, key=lambda x: x.start, reverse=True)
+            
+            # 8. Log what we actually received
+            if candles:
+                newest = datetime.fromtimestamp(candles[0].start, utc_tz).astimezone(est_tz)
+                oldest = datetime.fromtimestamp(candles[-1].start, utc_tz).astimezone(est_tz)
+                logger.info(f"Got candles from {oldest} to {newest} EST")
+            
             return candles
             
         except Exception as e:
-            logger.error(f"Failed to get product candles: {str(e)}")
-            raise
+            logger.error(f"Failed to get candles: {str(e)}")
+            return []
 
     def cancel_orders(self, order_ids: List[str]) -> Dict:
         """Cancel one or more orders by ID"""

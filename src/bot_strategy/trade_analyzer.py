@@ -4,8 +4,12 @@ import logging
 from datetime import datetime
 import time
 from .timeframes import Timeframe
+import pytz
 
 logger = logging.getLogger(__name__)
+
+est_tz = pytz.timezone('America/New_York')
+utc_tz = pytz.UTC
 
 def print_price_chart(prices: List[float], width: int = 50):
     """Print a simple ASCII chart of price movement"""
@@ -142,6 +146,9 @@ class TradeAnalysis:
     def print_analysis(self, analysis: dict, symbol: str, action: str, prices: List[float] = None):
         """Print formatted trade analysis with order details and profit calculations"""
         print("\n🎯 Signal generated:")
+        # Convert current time to EST
+        current_time = datetime.now(utc_tz).astimezone(est_tz)
+        print(f"   Time (EST): {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"   Symbol: {symbol}")
         print(f"   Action: {action}")
         print(f"   Price: ${self.entry_price:,.2f}")

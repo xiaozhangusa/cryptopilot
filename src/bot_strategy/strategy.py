@@ -3,9 +3,14 @@ from typing import List, Optional, Tuple
 import numpy as np
 import logging
 from .timeframes import Timeframe
-from datetime import datetime
+from datetime import datetime, timezone
+import pytz  # Add this import
 
 logger = logging.getLogger(__name__)
+
+# Add timezone constants at the top with other constants
+est_tz = pytz.timezone('America/New_York')
+utc_tz = pytz.UTC
 
 @dataclass
 class TradingSignal:
@@ -102,6 +107,10 @@ class SwingStrategy:
 
     def print_candle_analysis(self, prices: List[float], timestamps: List[int]) -> None:
         """Print detailed candle analysis and RSI calculation"""
+        if not prices or not timestamps or len(prices) != len(timestamps):
+            logger.error("Invalid price or timestamp data")
+            return
+        
         print("\n📈 Candle Analysis:")
         print(f"Timeframe: {self.timeframe.value}")
         
@@ -117,13 +126,18 @@ class SwingStrategy:
         # Print last 14 periods plus current
         start_idx = max(0, len(prices) - self.rsi_period - 1)
         for i in range(start_idx, len(prices)):
-            dt = datetime.fromtimestamp(timestamps[i])
-            time_str = dt.strftime("%H:%M")
-            change_str = f"{changes[i]:+.2f}" if changes[i] != 0 else "-"
-            gain_str = f"{gains[i]:.2f}" if gains[i] > 0 else "-"
-            loss_str = f"{losses[i]:.2f}" if losses[i] > 0 else "-"
-            
-            print(f"{time_str:<8}    ${prices[i]:<9,.2f} {change_str:<9} {gain_str:<7} {loss_str:<7}")
+            try:
+                # Convert UTC timestamp to EST for display
+                dt = datetime.fromtimestamp(timestamps[i], tz=utc_tz).astimezone(est_tz)
+                time_str = dt.strftime("%H:%M")
+                change_str = f"{changes[i]:+.2f}" if changes[i] != 0 else "-"
+                gain_str = f"{gains[i]:.2f}" if gains[i] > 0 else "-"
+                loss_str = f"{losses[i]:.2f}" if losses[i] > 0 else "-"
+                
+                print(f"{time_str:<8}    ${prices[i]:<9,.2f} {change_str:<9} {gain_str:<7} {loss_str:<7}")
+            except IndexError as e:
+                logger.error(f"Index error at position {i}: {str(e)}")
+                break
         
         # Use the same RSI calculation as calculate_rsi method
         avg_gain = np.mean(gains[-self.rsi_period:])  # Include zeros
@@ -136,8 +150,6 @@ class SwingStrategy:
         print(f"Average Loss: ${avg_loss:.2f}")
         print(f"Relative Strength (RS) = Avg Gain / Avg Loss = {rs:.2f}")
         print(f"RSI = 100 - (100 / (1 + RS)) = {rsi:.2f}")
-        
-        # Remove price range from here as it's now shown earlier 
 
     def analyze_rsi_swings(self, prices: List[float], timestamps: List[int]) -> dict:
         """Analyze RSI swings from oversold to overbought conditions

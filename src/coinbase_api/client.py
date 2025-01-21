@@ -13,6 +13,7 @@ from coinbase.rest import RESTClient
 from coinbase.websocket import WSClient
 # from coinbase.rest.models.enums import OrderSide, OrderType, TimeInForce
 # from coinbase.rest.models import CreateOrderResponse
+from bot_strategy.timeframes import Timeframe  # Add this import at the top
 
 logger = logging.getLogger(__name__)
 
@@ -216,79 +217,48 @@ class CoinbaseAdvancedClient:
         }[granularity]
 
     def get_product_candles(self, product_id: str, granularity: str = 'FIVE_MINUTE') -> List[dict]:
-        """Get historical price candles for a cryptocurrency product.
-
-        This method retrieves OHLCV (Open, High, Low, Close, Volume) candle data for a specified
-        trading pair over a time period. The time period is calculated based on the number of
-        periods needed for analysis (default 20 periods for RSI calculation) and the specified
-        granularity.
-
-        Args:
-            product_id (str): The trading pair identifier (e.g., 'BTC-USD', 'ETH-USD')
-            granularity (str, optional): The time interval for each candle. Defaults to 'FIVE_MINUTE'.
-                Valid values:
-                - 'ONE_MINUTE': 1-minute candles
-                - 'FIVE_MINUTE': 5-minute candles
-                - 'FIFTEEN_MINUTE': 15-minute candles
-                - 'THIRTY_MINUTE': 30-minute candles
-                - 'ONE_HOUR': 1-hour candles
-                - 'TWO_HOUR': 2-hour candles
-                - 'SIX_HOUR': 6-hour candles
-                - 'ONE_DAY': 24-hour candles
-
-        Returns:
-            List[dict]: A list of candle data sorted by time (newest first). Each candle contains:
-                - start: Unix timestamp for the start of the candle
-                - low: Lowest price during the period
-                - high: Highest price during the period
-                - open: Opening price for the period
-                - close: Closing price for the period
-                - volume: Trading volume during the period
-
-        Raises:
-            Exception: If there's an error fetching the candle data from Coinbase API.
-            The exception is caught and logged, returning an empty list.
-
-        Example:
-            >>> client = CoinbaseAdvancedClient(api_key, api_secret)
-            >>> candles = client.get_product_candles('BTC-USD', 'ONE_HOUR')
-            >>> if candles:
-            >>>     print(f"Most recent BTC price: ${candles[0].close}")
-        """
+        """Get historical candles for a product"""
         try:
-            # 1. Get current time in Unix timestamp (seconds since epoch)
-            end = int(time.time())
+            # 1. Get timeframe properties
+            timeframe = Timeframe(granularity)  # Convert string to Timeframe enum
+            lookback_minutes = timeframe.minutes * (timeframe.lookback_periods + 14)  # Extra for RSI
             
-            # 2. Define how many candles we need for analysis
-            periods_needed = 20  # For RSI calculation
+            # 2. Calculate timestamps as strings
+            current_time = int(time.time())
+            end = str(current_time)  # Convert to string as required by API
+            start = str(current_time - lookback_minutes * 60)  # Convert to string as required by API
             
-            # 3. Convert timeframe to seconds
-            granularity_secs = self.get_granularity_seconds(granularity)
+            # Debug timestamps
+            end_time = datetime.fromtimestamp(int(end), utc_tz).astimezone(est_tz)
+            start_time = datetime.fromtimestamp(int(start), utc_tz).astimezone(est_tz)
+            print("\n" + "="*50)
+            print(f"TIMING CHECK:")
+            print(f"Start time EST: {start_time}")
+            print(f"End time EST: {end_time}")
+            print(f"Start time UTC: {start}")
+            print(f"End time UTC: {end}")
+            print(f"Granularity: {granularity}")
             
-            # 4. Calculate start time by going back (periods * interval) seconds
-            start = end - (periods_needed * granularity_secs)
-            
-            # 5. Log the time range we're requesting (in EST)
-            start_time = datetime.fromtimestamp(start, utc_tz).astimezone(est_tz)
-            end_time = datetime.fromtimestamp(end, utc_tz).astimezone(est_tz)
-            logger.info(f"Fetching candles from {start_time} to {end_time} EST")
-            
-            # 6. Make API request to Coinbase
+            # 3. Make API request using string timestamps as required by API
             response = self.rest_client.get_candles(
                 product_id=product_id,
-                start=str(start),
-                end=str(end),
-                granularity=granularity
+                start=start,      # String timestamp as required
+                end=end,         # String timestamp as required
+                granularity=timeframe.value,
+                limit=300
             )
             
-            # 7. Sort candles newest first
+            # 4. Sort and check candles
             candles = sorted(response.candles, key=lambda x: x.start, reverse=True)
+            # print(f"Candles: {candles}")
             
-            # 8. Log what we actually received
             if candles:
-                newest = datetime.fromtimestamp(candles[0].start, utc_tz).astimezone(est_tz)
-                oldest = datetime.fromtimestamp(candles[-1].start, utc_tz).astimezone(est_tz)
-                logger.info(f"Got candles from {oldest} to {newest} EST")
+                print("\nReceived candles:")
+                for i, candle in enumerate(candles[:3]):
+                    # Convert string timestamp to integer before creating datetime
+                    candle_time = datetime.fromtimestamp(int(candle.start), utc_tz).astimezone(est_tz)
+                    print(f"Candle {i}: {candle_time} EST")
+            print("="*50 + "\n")
             
             return candles
             

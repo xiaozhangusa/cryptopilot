@@ -58,67 +58,80 @@ def main():
                 print("\n" + "="*50, flush=True)
                 print(f"📊 Fetching market data for {symbol}...", flush=True)
                 
-                # Calculate start time based on timeframe
-                lookback_minutes = timeframe.minutes * (timeframe.lookback_periods + 14)  # Extra for RSI
-                start = str(int(time.time() - lookback_minutes * 60))
-                end = str(int(time.time()))
-                
-                # Get candles for analysis
-                response = coinbase_client.rest_client.get_candles(
+                # Let client.py handle all the timestamp and API details
+                candles = coinbase_client.get_product_candles(
                     product_id=symbol,
-                    start=start,
-                    end=end,
-                    granularity=timeframe.value,
-                    limit=300
+                    granularity=timeframe.value
                 )
 
-                prices = [float(candle.close) for candle in response.candles]
-                timestamps = [int(candle.start) for candle in response.candles]
-                
-                # Print price information
-                print(f"📈 Latest price: ${prices[-1]:,.2f}", flush=True)
-                print(f"\n💹 Price Range:")
-                print(f"High: ${max(prices):.2f}")
-                print(f"Low:  ${min(prices):.2f}")
-                print(f"Current: ${prices[-1]:.2f}")
+                # Process the candles
+                if not candles:
+                    logger.error("No candles received")
+                    time.sleep(60)  # Wait before retrying
+                    continue
 
-                # Print price chart
-                print_price_chart(prices)
+                # Ensure we have enough candles for analysis
+                min_candles_needed = max(timeframe.lookback_periods, 14)  # Use larger of lookback or RSI periods
+                if len(candles) < min_candles_needed:
+                    logger.error(f"Not enough candles received. Got {len(candles)}, need {min_candles_needed}")
+                    time.sleep(60)  # Wait before retrying
+                    continue
 
-                # Generate trading signal
-                print("\n🤖 Analyzing market conditions...")
-                signal = strategy.generate_signal(symbol, prices, timestamps)
-                
-                if signal:
-                    # Analyze trade potential
-                    analyzer = TradeAnalysis(
-                        investment=10.0,  # $10 test trade
-                        entry_price=signal.price,
-                        timeframe=timeframe  # Pass the timeframe
-                    )
-                    analysis = analyzer.analyze(prices, signal.action)
-                    analyzer.print_analysis(analysis, signal.symbol, signal.action, prices)
+                # Process the candles
+                try:
+                    # Extract both prices and timestamps
+                    prices = [float(candle.close) for candle in candles]
+                    timestamps = [int(candle.start) for candle in candles]
                     
-                    if trading_mode == 'simulation':
-                        print(f"\n🔸 SIMULATION MODE:")
-                        print(f"   Would {signal.action} {symbol} at ${signal.price:,.2f}")
-                    else:
-                        print(f"\n🔶 LIVE MODE: Executing trade...")
-                        order = OrderRequest(
-                            product_id=signal.symbol,
-                            side=signal.action.lower(),
-                            order_type='MARKET',
-                            quote_size='10'
+                    # Print price information
+                    print(f"📈 Latest price: ${prices[-1]:,.2f}", flush=True)
+                    print(f"\n💹 Price Range:")
+                    print(f"High: ${max(prices):.2f}")
+                    print(f"Low:  ${min(prices):.2f}")
+                    print(f"Current: ${prices[-1]:.2f}")
+
+                    # Print price chart
+                    print_price_chart(prices)
+
+                    # Generate trading signal
+                    print("\n🤖 Analyzing market conditions...")
+                    signal = strategy.generate_signal(symbol, prices, timestamps)
+                    
+                    if signal:
+                        # Analyze trade potential
+                        analyzer = TradeAnalysis(
+                            investment=10.0,  # $10 test trade
+                            entry_price=signal.price,
+                            timeframe=timeframe  # Pass the timeframe
                         )
-                        response = coinbase_client.create_market_order(order)
-                        logger.info(f"Order placed: {response}")
-                else:
-                    print("\n😴 No trading signals generated")
+                        analysis = analyzer.analyze(prices, signal.action)
+                        analyzer.print_analysis(analysis, signal.symbol, signal.action, prices)
+                        
+                        if trading_mode == 'simulation':
+                            print(f"\n🔸 SIMULATION MODE:")
+                            print(f"   Would {signal.action} {symbol} at ${signal.price:,.2f}")
+                        else:
+                            print(f"\n🔶 LIVE MODE: Executing trade...")
+                            order = OrderRequest(
+                                product_id=signal.symbol,
+                                side=signal.action.lower(),
+                                order_type='MARKET',
+                                quote_size='10'
+                            )
+                            response = coinbase_client.create_market_order(order)
+                            logger.info(f"Order placed: {response}")
+                    else:
+                        print("\n😴 No trading signals generated")
                     
-                # Wait for next iteration
-                print(f"\n⏳ Waiting {300/60:.1f} minutes for next analysis...")
-                time.sleep(300)  # 5 minutes
-                
+                    # Wait for next iteration
+                    print(f"\n⏳ Waiting {300/60:.1f} minutes for next analysis...")
+                    time.sleep(300)  # 5 minutes
+                    
+                except Exception as e:
+                    logger.error(f"Error processing candles: {str(e)}")
+                    time.sleep(60)  # Wait before retrying
+                    continue
+
             except Exception as e:
                 logger.error(f"Error in trading loop: {str(e)}")
                 print(f"\n❌ Error: {str(e)}")

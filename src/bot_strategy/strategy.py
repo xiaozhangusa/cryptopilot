@@ -123,11 +123,10 @@ class SwingStrategy:
         gains = [max(0, change) for change in changes]
         losses = [max(0, -change) for change in changes]
         
-        # Print last 14 periods plus current
-        start_idx = max(0, len(prices) - self.rsi_period - 1)
-        for i in range(start_idx, len(prices)):
+        # Print most recent periods first
+        periods_to_show = self.rsi_period + 1
+        for i in range(min(periods_to_show, len(prices))):
             try:
-                # Convert UTC timestamp to EST for display
                 dt = datetime.fromtimestamp(timestamps[i], tz=utc_tz).astimezone(est_tz)
                 time_str = dt.strftime("%H:%M")
                 change_str = f"{changes[i]:+.2f}" if changes[i] != 0 else "-"

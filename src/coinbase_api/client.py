@@ -220,24 +220,24 @@ class CoinbaseAdvancedClient:
         """Get historical candles for a product"""
         try:
             # 1. Get timeframe properties
-            timeframe = Timeframe(granularity)  # Convert string to Timeframe enum
-            lookback_minutes = timeframe.minutes * (timeframe.lookback_periods + 14)  # Extra for RSI
+            timeframe = Timeframe(granularity)
+            lookback_minutes = timeframe.minutes * (timeframe.lookback_periods + 14)
             
-            # 2. Calculate timestamps as strings
-            current_time = int(time.time())
-            end = str(current_time)  # Convert to string as required by API
-            start = str(current_time - lookback_minutes * 60)  # Convert to string as required by API
+            # 2. Calculate timestamps in UTC with debug info
+            current_time_utc = int(datetime.now(utc_tz).timestamp())
+            current_time_est = datetime.now(est_tz)
+            
+            end = str(current_time_utc)
+            start = str(current_time_utc - lookback_minutes * 60)
             
             # Debug timestamps
-            end_time = datetime.fromtimestamp(int(end), utc_tz).astimezone(est_tz)
-            start_time = datetime.fromtimestamp(int(start), utc_tz).astimezone(est_tz)
             print("\n" + "="*50)
-            print(f"TIMING CHECK:")
-            print(f"Start time EST: {start_time}")
-            print(f"End time EST: {end_time}")
-            print(f"Start time UTC: {start}")
-            print(f"End time UTC: {end}")
-            print(f"Granularity: {granularity}")
+            print(f"DETAILED TIMING CHECK:")
+            print(f"Current time EST: {current_time_est}")
+            print(f"Current time UTC: {datetime.now(utc_tz)}")
+            print(f"Request window:")
+            print(f"  Start: {datetime.fromtimestamp(int(start), utc_tz).astimezone(est_tz)} EST")
+            print(f"  End: {datetime.fromtimestamp(int(end), utc_tz).astimezone(est_tz)} EST")
             
             # 3. Make API request using string timestamps as required by API
             response = self.rest_client.get_candles(
@@ -258,6 +258,11 @@ class CoinbaseAdvancedClient:
                     # Convert string timestamp to integer before creating datetime
                     candle_time = datetime.fromtimestamp(int(candle.start), utc_tz).astimezone(est_tz)
                     print(f"Candle {i}: {candle_time} EST")
+                newest_candle = candles[0]  # First candle should be newest
+                oldest_candle = candles[-1]  # Last candle should be oldest
+                print("\nCANDLE TIME RANGE:")
+                print(f"Newest candle: {datetime.fromtimestamp(int(newest_candle.start), utc_tz).astimezone(est_tz)} EST")
+                print(f"Oldest candle: {datetime.fromtimestamp(int(oldest_candle.start), utc_tz).astimezone(est_tz)} EST")
             print("="*50 + "\n")
             
             return candles

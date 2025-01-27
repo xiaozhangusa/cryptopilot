@@ -1,0 +1,19 @@
+FROM python:3.8-slim
+
+WORKDIR /app
+
+# Install gcc for any compiled dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy only requirements files
+COPY requirements.txt .
+COPY requirements-dev.txt .
+
+# Install all dependencies
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
+
+# Set timezone
+ENV TZ=America/New_York
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone 

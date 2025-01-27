@@ -8,6 +8,7 @@ MODE="local"
 ENVIRONMENT="simulation"
 VERBOSE=false
 DETACH=false
+REBUILD_BASE=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -26,6 +27,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -d|--detach)
             DETACH=true
+            shift
+            ;;
+        --rebuild-base)
+            REBUILD_BASE=true
             shift
             ;;
         *)
@@ -51,4 +56,5 @@ python3 "$(dirname "$0")/deploy.py" \
     --mode "$MODE" \
     --env "$ENVIRONMENT" \
     $([ "$VERBOSE" = true ] && echo "--verbose") \
-    $([ "$DETACH" = true ] && echo "--detach") 
+    $([ "$DETACH" = true ] && echo "--detach") \
+    $([ "$REBUILD_BASE" = true ] && echo "--rebuild-base") 

@@ -1,24 +1,25 @@
 services:
   trading-bot:
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile
     container_name: trading-bot-1
     environment:
       - TRADING_MODE=${TRADING_MODE}
       - TIMEFRAME=${TIMEFRAME}
       - SECRETS_FILE=${SECRETS_FILE}
-    # Add logging configuration
+      - PYTHONUNBUFFERED=1
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-    # Ensure container output is not buffered
-    tty: true
-    stdin_open: true
+    # tty: true
+    # stdin_open: true
     volumes:
       - .:/app
       - ./secrets.json:/app/secrets.json:ro
-    command: python -m src.local_run 
+    command: python -u -m src.local_run
 
   test:
     build:

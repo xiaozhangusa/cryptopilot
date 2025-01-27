@@ -52,7 +52,7 @@ cryptopilot/
 
 3. **Prepare Secrets**
 
-   Ensure you have a `secrets.json` file with your Coinbase API credentials:
+   Create a `secrets.json` file with your Coinbase API credentials:
 
    ```json
    {
@@ -62,41 +62,52 @@ cryptopilot/
    }
    ```
 
-## Running the Bot
+## Building and Running
 
-### Using Docker Compose
-
-1. **Build and Start the Container**
+1. **First Time Setup** (or when dependencies change)
 
    ```bash
-   docker-compose up --build
+   ./scripts/deploy.sh --mode local --env simulation --rebuild-base
    ```
 
-   This will start the trading bot in the specified timeframe and mode.
-
-2. **Logs and Monitoring**
-
-   You can view logs in the terminal to monitor the bot's activity:
+2. **Regular Development** (when only changing application code)
 
    ```bash
-   docker logs trading-bot-1 -f
+   # Run in foreground (logs show directly in terminal)
+   ./scripts/deploy.sh --mode local --env simulation
+
+   # Or run in background
+   ./scripts/deploy.sh --mode local --env simulation --detach
    ```
 
-### Running Locally
-
-1. **Install Dependencies**
+3. **View Logs** (when running in detached mode)
 
    ```bash
-   pip install -r requirements.txt
+   # View all logs
+   docker-compose logs -f
+
+   # View last 100 lines
+   docker-compose logs -f --tail=100
    ```
 
-2. **Run the Bot**
+   Press Ctrl+C to stop viewing logs (container will continue running in detached mode)
 
-   ```bash
-   python -m src.local_run
-   ```
+## Development
 
-   Ensure the environment variables are set in your terminal session or `.env` file.
+The base image contains all dependencies and system setup. You only need to rebuild it when:
+- Setting up the project for the first time
+- Updating dependencies in requirements.txt or requirements-dev.txt
+- Making changes to Dockerfile.base
+
+For regular development where you're only changing application code, you don't need the --rebuild-base flag.
+
+## Available Deploy Script Options
+
+- `--mode`: Choose deployment mode (`local` or `aws`)
+- `--env`: Choose environment (`simulation` or `production`)
+- `--verbose`: Enable verbose logging
+- `--detach`: Run containers in background
+- `--rebuild-base`: Force rebuild of the base image
 
 ## Strategy Overview
 

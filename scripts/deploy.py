@@ -91,27 +91,42 @@ class Deployer:
                 
         logging.info("✅ Secrets validation completed")
 
+    def build_base_image(self):
+        """Build the base image if it doesn't exist or if forced"""
+        logging.info("Building base image...")
+        base_image_tag = "localhost/trading-bot-base:latest"
+        if self.args.rebuild_base or self.execute_command(f"docker images -q {base_image_tag}") != 0:
+            if self.execute_command(f"docker build -f Dockerfile.base -t {base_image_tag} .") != 0:
+                raise RuntimeError("Failed to build base image")
+            logging.info("✅ Base image built successfully")
+        else:
+            logging.info("✅ Using existing base image")
+
     def deploy_local(self):
         """Handle local deployment"""
         logging.info("Starting local deployment...")
         
+        # Always build base image first
+        self.build_base_image()
+        
         # Build Docker containers
         logging.info("Building Docker containers...")
-        if self.execute_command("docker-compose build --no-cache") != 0:
+        if self.execute_command("docker-compose build") != 0:
             raise RuntimeError("Failed to build Docker containers")
             
         # Start containers
         logging.info("Starting Docker containers...")
-        command = "docker-compose up"
         if self.args.detach:
-            command += " -d"
+            command = "docker-compose up -d"
+            if self.execute_command(command) != 0:
+                raise RuntimeError("Failed to start Docker containers")
             
-        if self.execute_command(command) != 0:
-            raise RuntimeError("Failed to start Docker containers")
-            
-        # Verify containers are running
-        if self.execute_command("docker-compose ps -q") != 0:
-            raise RuntimeError("Container failed to start")
+            # Verify containers are running
+            if self.execute_command("docker-compose ps -q") != 0:
+                raise RuntimeError("Container failed to start")
+        else:
+            # Simply execute docker-compose up
+            os.execvp("docker-compose", ["docker-compose", "up"])
 
     def deploy_aws(self):
         """Handle AWS deployment"""
@@ -160,12 +175,14 @@ def main():
     parser.add_argument('--env', choices=['simulation', 'production'], required=True)
     parser.add_argument('--verbose', action='store_true')
     parser.add_argument('--detach', action='store_true')
+    parser.add_argument('--rebuild-base', action='store_true', help='Force rebuild of base image')
     
     args = parser.parse_args()
     
+    # Simplified logging format without extra newlines
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
-        format='%(asctime)s [%(levelname)s] %(message)s'
+        format='%(asctime)s [%(levelname)s] %(message)s'.strip()
     )
     
     try:

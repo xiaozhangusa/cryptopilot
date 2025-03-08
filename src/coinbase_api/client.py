@@ -14,6 +14,7 @@ from coinbase.websocket import WSClient
 # from coinbase.rest.models.enums import OrderSide, OrderType, TimeInForce
 # from coinbase.rest.models import CreateOrderResponse
 from bot_strategy.timeframes import Timeframe  # Add this import at the top
+from src.coinbase_api.models import Account  # Add this import at the top
 
 logger = logging.getLogger(__name__)
 
@@ -116,14 +117,29 @@ class CoinbaseAdvancedClient:
             while not self.order_filled:
                 self.ws_client.sleep_with_exception_check(1)
 
-    def get_accounts(self) -> Dict:
-        """Fetch all available trading accounts"""
+    def get_accounts(self) -> List[Account]:
+        """
+        Get all accounts from Coinbase
+        Returns list of Account objects with proper balance information
+        """
         try:
-            accounts = self.rest_client.get_accounts()
-            logger.info(f"Retrieved {len(accounts.accounts)} accounts")
-            return accounts.to_dict()
+            response = self.rest_client.get_accounts()
+            accounts = []
+            for account in response.accounts:
+                # Handle the nested dictionary structure from the API
+                account_dict = account.to_dict()
+                accounts.append(Account(
+                    uuid=account_dict['uuid'],
+                    name=account_dict['name'],
+                    currency=account_dict['currency'],
+                    available_balance=Decimal(str(account_dict['available_balance']['value'])),
+                    hold=Decimal(str(account_dict['hold']['value']))
+                ))
+            
+            logger.info(f"Retrieved {len(accounts)} accounts")
+            return accounts
         except Exception as e:
-            logger.error(f"Failed to fetch accounts: {str(e)}")
+            logger.error(f"Error getting accounts: {str(e)}")
             raise
 
     def create_market_order(self, order: OrderRequest) -> Dict:

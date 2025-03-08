@@ -7,7 +7,8 @@ from bot_strategy.trade_analyzer import TradeAnalysis
 from coinbase_api.client import CoinbaseAdvancedClient, OrderRequest
 import sys
 from bot_strategy.timeframes import Timeframe
-from bot_strategy.utils import print_price_chart
+from utils.chart import print_price_chart
+from trading.order_manager import OrderManager
 
 # Configure logging to output to stdout with proper formatting
 logging.basicConfig(
@@ -50,6 +51,9 @@ def main():
         strategy = SwingStrategy(timeframe=timeframe)
         logger.info("Strategy initialized successfully")
         
+        # Initialize order manager
+        order_manager = OrderManager(coinbase_client)
+
         # Trading loop
         while True:
             try:
@@ -115,12 +119,15 @@ def main():
                                 product_id='USDT-USDC',
                                 side='BUY',
                                 order_type='LIMIT',
-                                base_size='2',  # Amount in USDT
-                                limit_price='0.9800',  # Price in USDC
-                                time_in_force='GTC'  # Good till cancelled
+                                base_size='2',
+                                limit_price='0.9800',
+                                time_in_force='GTC'
                             )
-                            response = coinbase_client.create_limit_order(order)
-                            logger.info(f"Order placed: {response}")
+                            response = order_manager.place_order(order)
+                            if response['success']:
+                                logger.info(f"✅ Order placed successfully: {response}")
+                            else:
+                                logger.warning(f"❌ Order not placed: {response['error']}")
                         else:
                             print(f"\n🔶 LIVE MODE: Executing trade...")
                             order = OrderRequest(

@@ -21,7 +21,7 @@ class ProgressIndicator:
 class Deployer:
     def __init__(self, mode: str, environment: str, args):
         self.mode = mode  # 'local' or 'aws'
-        self.environment = environment  # 'simulation' or 'production'
+        self.environment = environment  # 'simulation' or 'live'
         self.args = args
         self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.progress = ProgressIndicator()
@@ -78,7 +78,7 @@ class Deployer:
             if self.environment == 'simulation':
                 logging.warning("⚠️ No secrets.json found, will use dummy credentials")
             else:
-                raise RuntimeError("secrets.json is required for production deployment")
+                raise RuntimeError("secrets.json is required for live deployment")
         else:
             try:
                 with open(secrets_file) as f:
@@ -172,7 +172,7 @@ class Deployer:
 def main():
     parser = argparse.ArgumentParser(description='Deploy trading bot')
     parser.add_argument('--mode', choices=['local', 'aws'], required=True)
-    parser.add_argument('--env', choices=['simulation', 'production'], required=True)
+    parser.add_argument('--env', choices=['simulation', 'live'], required=True)
     parser.add_argument('--verbose', action='store_true')
     parser.add_argument('--detach', action='store_true')
     parser.add_argument('--rebuild-base', action='store_true', help='Force rebuild of base image')

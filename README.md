@@ -45,7 +45,7 @@ cryptopilot/
    Create a `.env` file in the root directory with the following content:
 
    ```env
-   TRADING_MODE=simulation
+   TRADING_MODE=simulation # Options: simulation, live
    TIMEFRAME=FIVE_MINUTE  # Options: FIVE_MINUTE, ONE_HOUR, SIX_HOUR, TWELVE_HOUR, ONE_DAY
    SECRETS_FILE=secrets.json
    ```
@@ -104,7 +104,7 @@ For regular development where you're only changing application code, you don't n
 ## Available Deploy Script Options
 
 - `--mode`: Choose deployment mode (`local` or `aws`)
-- `--env`: Choose environment (`simulation` or `production`)
+- `--env`: Choose environment (`simulation` or `live`)
 - `--verbose`: Enable verbose logging
 - `--detach`: Run containers in background
 - `--rebuild-base`: Force rebuild of the base image
@@ -137,7 +137,7 @@ For further assistance, refer to the project's issue tracker or contact the deve
 
 The bot can be configured using environment variables:
 
-- `TRADING_MODE`: Set to 'simulation' or 'production' (default: simulation)
+- `TRADING_MODE`: Set to 'simulation' or 'live' (default: simulation)
 - `SECRETS_FILE`: Path to secrets file (default: secrets.json)
 - `PYTHONPATH`: Python path for module imports
 
@@ -206,7 +206,7 @@ docker-compose --profile test up
 ### AWS Deployment
 ```bash
 # Configure AWS credentials first
-./scripts/deploy.sh --mode aws --env production
+./scripts/deploy.sh --mode aws --env live
 ```
 
 ## Monitoring

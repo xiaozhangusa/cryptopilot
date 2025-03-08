@@ -125,17 +125,64 @@ class CoinbaseAdvancedClient:
         try:
             response = self.rest_client.get_accounts()
             accounts = []
+            currency_counts = {}  # To track duplicate currencies
+            
             for account in response.accounts:
                 # Handle the nested dictionary structure from the API
                 account_dict = account.to_dict()
-                accounts.append(Account(
-                    uuid=account_dict['uuid'],
-                    name=account_dict['name'],
-                    currency=account_dict['currency'],
-                    available_balance=Decimal(str(account_dict['available_balance']['value'])),
-                    hold=Decimal(str(account_dict['hold']['value']))
-                ))
+                
+                # Log the full account structure for debugging
+                logger.debug(f"Account structure: {account_dict}")
+                
+                # Safely extract values with better error handling
+                try:
+                    # Get the currency (check if it's a duplicate)
+                    currency = account_dict.get('currency', '')
+                    if currency:
+                        currency_counts[currency] = currency_counts.get(currency, 0) + 1
+                    
+                    # Get the available balance value, defaulting to '0' if missing
+                    available_balance_value = account_dict.get('available_balance', {}).get('value', '0')
+                    hold_value = account_dict.get('hold', {}).get('value', '0')
+                    
+                    # Account ID or any unique identifier
+                    uuid = account_dict.get('uuid', '')
+                    
+                    # Create Account object with proper values
+                    accounts.append(Account(
+                        uuid=uuid,
+                        name=account_dict.get('name', ''),
+                        currency=currency,
+                        available_balance=Decimal(str(available_balance_value)),
+                        hold=Decimal(str(hold_value))
+                    ))
+                except (KeyError, TypeError, ValueError) as e:
+                    logger.error(f"Error parsing account data: {e}, account: {account_dict}")
+                    # Still add the account but with safe default values
+                    accounts.append(Account(
+                        uuid=account_dict.get('uuid', ''),
+                        name=account_dict.get('name', ''),
+                        currency=account_dict.get('currency', ''),
+                        available_balance=Decimal('0'),
+                        hold=Decimal('0')
+                    ))
             
+            # Log duplicate currencies if any
+            duplicates = {curr: count for curr, count in currency_counts.items() if count > 1}
+            if duplicates:
+                logger.info(f"Found duplicate currency accounts: {duplicates}")
+                
+                # Group accounts by currency for clearer logging
+                for currency, count in duplicates.items():
+                    matching = [acc for acc in accounts if acc.currency == currency]
+                    logger.info(f"Details for {currency} accounts ({count}):")
+                    for i, acc in enumerate(matching):
+                        logger.info(f"  - {currency} account {i+1}: Balance = {acc.available_balance}, UUID = {acc.uuid}")
+            
+            # Debug log all accounts and their balances
+            for account in accounts:
+                logger.info(f"Account {account.currency}: available={account.available_balance}, hold={account.hold}")
+                
             logger.info(f"Retrieved {len(accounts)} accounts")
             return accounts
         except Exception as e:

@@ -37,6 +37,26 @@ class SwingStrategy:
         logger.info(f"Initialized {timeframe.value} strategy: "
                    f"RSI({rsi_period}) thresholds: {self.oversold}/{self.overbought}")
     
+    def _ensure_chronological_order(self, prices: List[float]) -> List[float]:
+        """
+        Ensure price data is in chronological order (oldest first)
+        
+        Args:
+            prices: List of price values
+            
+        Returns:
+            List of prices in chronological order (oldest first)
+        """
+        # Make a copy to avoid modifying the original data
+        chronological_prices = prices.copy()
+        
+        # Check if prices appear to be in reverse order (newest first)
+        if len(prices) > 1 and prices[0] > prices[-1]:
+            logger.debug("Prices appear to be in reverse order, reordering to oldest-first")
+            chronological_prices = list(reversed(chronological_prices))
+            
+        return chronological_prices
+    
     def _get_rsi_thresholds(self) -> Tuple[float, float]:
         """Get RSI thresholds based on timeframe"""
         return {
@@ -53,8 +73,11 @@ class SwingStrategy:
             logger.warning(f"Not enough data for {self.timeframe.value} RSI calculation")
             return 50
         
-        # Calculate price changes
-        deltas = np.diff(prices)
+        # Make sure prices are in chronological order (oldest first)
+        chronological_prices = self._ensure_chronological_order(prices)
+        
+        # Calculate price changes (next - current)
+        deltas = np.diff(chronological_prices)
         
         # Separate gains and losses
         gains = np.where(deltas > 0, deltas, 0)
@@ -83,8 +106,20 @@ class SwingStrategy:
         # Print candle analysis before generating signal
         self.print_candle_analysis(prices, timestamps)
         
+        # Log price data direction for debugging
+        is_reversed = len(prices) > 1 and prices[0] > prices[-1]
+        price_order = "newest first (reversed)" if is_reversed else "oldest first (chronological)"
+        logger.info(f"Prices appear to be in {price_order} order. First price: {prices[0]}, Last price: {prices[-1]}")
+        
+        # Calculate RSI
         rsi = self.calculate_rsi(prices)
-        current_price = prices[-1]
+        
+        # Get the current price (most recent)
+        current_price = prices[0] if is_reversed else prices[-1]
+        
+        # Log details about the RSI calculation
+        logger.info(f"{self.timeframe.value} RSI calculation result: {rsi:.2f}, using {self.rsi_period} periods")
+        logger.info(f"Current price: ${current_price:.2f}")
         
         if rsi < self.oversold:
             logger.info(f"{self.timeframe.value} RSI({rsi:.2f}) below {self.oversold} - Generating BUY signal")
@@ -102,8 +137,10 @@ class SwingStrategy:
                 price=current_price,
                 timeframe=self.timeframe
             )
+        else:
+            logger.info(f"{self.timeframe.value} RSI({rsi:.2f}) between thresholds {self.oversold}-{self.overbought} - No signal")
         
-        return None 
+        return None
 
     def print_candle_analysis(self, prices: List[float], timestamps: List[int]) -> None:
         """Print detailed candle analysis and RSI calculation"""
@@ -114,33 +151,90 @@ class SwingStrategy:
         print("\n📈 Candle Analysis:")
         print(f"Timeframe: {self.timeframe.value}")
         
-        # Header
-        print("\nTime            Price      Change    Gain    Loss")
-        print("-" * 50)
+        # Define consistent column widths to ensure alignment
+        time_width = 12
+        price_width = 14
+        change_width = 10
+        gain_width = 10
+        loss_width = 10
         
-        # Calculate changes as current price minus previous price
-        changes = [prices[i] - prices[i+1] for i in range(len(prices)-1)] + [0]
+        # Header with proper spacing
+        print("\n" + "│ " + "Time".ljust(time_width) + "Price".ljust(price_width) + 
+              "Change".ljust(change_width) + "Gain".ljust(gain_width) + "Loss".ljust(loss_width))
+        print("│ " + "-" * (time_width + price_width + change_width + gain_width + loss_width))
+        
+        # Determine if prices are in reverse order
+        is_reversed = len(prices) > 1 and prices[0] > prices[-1]
+        
+        # Create copies for display (newest first)
+        display_prices = prices.copy()
+        display_timestamps = timestamps.copy()
+        
+        # Make sure display data is newest-first for better readability
+        if not is_reversed:
+            display_prices = list(reversed(display_prices))
+            display_timestamps = list(reversed(display_timestamps))
+            
+        # Get chronological prices (oldest first) for calculations
+        chronological_prices = self._ensure_chronological_order(prices)
+        
+        # Calculate deltas in chronological order
+        deltas = np.diff(chronological_prices)
+        
+        # Prepare changes array for display (newest first)
+        if is_reversed:
+            # If original data was newest-first, flip the deltas to match
+            changes = list(np.flip(deltas)) + [0]
+        else:
+            # If original data was oldest-first, keep reversed order from display
+            changes = list(deltas) + [0]
+            changes.reverse()
+        
+        # Separate gains and losses for display
         gains = [max(0, change) for change in changes]
         losses = [max(0, -change) for change in changes]
         
-        # Print most recent periods first
+        # Print most recent periods first with proper column alignment
         periods_to_show = self.rsi_period + 1
-        for i in range(min(periods_to_show, len(prices))):
+        for i in range(min(periods_to_show, len(display_prices))):
             try:
-                dt = datetime.fromtimestamp(timestamps[i], tz=utc_tz).astimezone(est_tz)
+                dt = datetime.fromtimestamp(display_timestamps[i], tz=utc_tz).astimezone(est_tz)
                 time_str = dt.strftime("%H:%M")
-                change_str = f"{changes[i]:+.2f}" if changes[i] != 0 else "-"
+                price_str = f"${display_prices[i]:,.2f}"
+                
+                # Format change with proper sign
+                if changes[i] != 0:
+                    change_str = f"{changes[i]:+.2f}"
+                else:
+                    change_str = "-"
+                
+                # Format gains and losses
                 gain_str = f"{gains[i]:.2f}" if gains[i] > 0 else "-"
                 loss_str = f"{losses[i]:.2f}" if losses[i] > 0 else "-"
                 
-                print(f"{time_str:<8}    ${prices[i]:<9,.2f} {change_str:<9} {gain_str:<7} {loss_str:<7}")
+                # Print with consistent column widths
+                print("│ " + time_str.ljust(time_width) + 
+                      price_str.ljust(price_width) + 
+                      change_str.ljust(change_width) + 
+                      gain_str.ljust(gain_width) + 
+                      loss_str.ljust(loss_width))
             except IndexError as e:
                 logger.error(f"Index error at position {i}: {str(e)}")
                 break
         
-        # Use the same RSI calculation as calculate_rsi method
-        avg_gain = np.mean(gains[-self.rsi_period:])  # Include zeros
-        avg_loss = np.mean(losses[-self.rsi_period:]) # Include zeros
+        # Calculate RSI using the same method as calculate_rsi
+        # Use chronological prices that are already properly ordered
+        
+        # Calculate deltas in chronological order
+        deltas = np.diff(chronological_prices)
+        
+        # Separate gains and losses
+        calc_gains = np.where(deltas > 0, deltas, 0)
+        calc_losses = np.where(deltas < 0, -deltas, 0)
+        
+        # Calculate average gain and loss
+        avg_gain = np.mean(calc_gains[-self.rsi_period:])  # Include zeros
+        avg_loss = np.mean(calc_losses[-self.rsi_period:]) # Include zeros
         rs = avg_gain / avg_loss if avg_loss != 0 else float('inf')
         rsi = 100 - (100 / (1 + rs)) if avg_loss != 0 else 100
         
@@ -149,6 +243,10 @@ class SwingStrategy:
         print(f"Average Loss: ${avg_loss:.2f}")
         print(f"Relative Strength (RS) = Avg Gain / Avg Loss = {rs:.2f}")
         print(f"RSI = 100 - (100 / (1 + RS)) = {rsi:.2f}")
+        
+        # Verify the RSI matches with the calculate_rsi method
+        verify_rsi = self.calculate_rsi(prices)
+        logger.info(f"RSI Verification - Printed: {rsi:.2f}, calculate_rsi method: {verify_rsi:.2f}")
 
     def analyze_rsi_swings(self, prices: List[float], timestamps: List[int]) -> dict:
         """Analyze RSI swings from oversold to overbought conditions

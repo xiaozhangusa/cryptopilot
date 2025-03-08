@@ -97,19 +97,30 @@ def main():
                     print("\n🤖 Analyzing market conditions...")
                     signal = strategy.generate_signal(symbol, prices, timestamps)
                     
-                    if signal:
+                    # if signal:
+                    if True:
                         # Analyze trade potential
-                        analyzer = TradeAnalysis(
-                            investment=10.0,  # $10 test trade
-                            entry_price=signal.price,
-                            timeframe=timeframe  # Pass the timeframe
-                        )
-                        analysis = analyzer.analyze(prices, signal.action)
-                        analyzer.print_analysis(analysis, signal.symbol, signal.action, prices)
+                        # analyzer = TradeAnalysis(
+                        #     investment=10.0,  # $10 test trade
+                        #     entry_price=signal.price,
+                        #     timeframe=timeframe  # Pass the timeframe
+                        # )
+                        # analysis = analyzer.analyze(prices, signal.action)
+                        # analyzer.print_analysis(analysis, signal.symbol, signal.action, prices)
                         
                         if trading_mode == 'simulation':
                             print(f"\n🔸 SIMULATION MODE:")
-                            print(f"   Would {signal.action} {symbol} at ${signal.price:,.2f}")
+                            print(f"\n🔶 Creating limit order for USDT-USDC...")
+                            order = OrderRequest(
+                                product_id='USDT-USDC',
+                                side='BUY',
+                                order_type='LIMIT',
+                                base_size='2',  # Amount in USDT
+                                limit_price='0.9800',  # Price in USDC
+                                time_in_force='GTC'  # Good till cancelled
+                            )
+                            response = coinbase_client.create_limit_order(order)
+                            logger.info(f"Order placed: {response}")
                         else:
                             print(f"\n🔶 LIVE MODE: Executing trade...")
                             order = OrderRequest(

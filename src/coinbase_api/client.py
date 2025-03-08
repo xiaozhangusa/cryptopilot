@@ -30,6 +30,8 @@ class OrderRequest:
     base_size: Optional[str] = None   # For limit orders: amount in base currency
     limit_price: Optional[str] = None # For limit orders: price per unit
     client_order_id: Optional[str] = None
+    time_in_force: Optional[str] = 'GTC'  # 'GTC', 'GTD', 'IOC', or 'FOK'
+    cancel_after: Optional[str] = None  # 'min', 'hour', 'day' for GTD orders
 
 class CoinbaseAdvancedClient:
     """Wrapper for Coinbase Advanced Trading API using official SDK"""
@@ -157,26 +159,75 @@ class CoinbaseAdvancedClient:
             raise
 
     def create_limit_order(self, order: OrderRequest) -> Dict:
-        """Create a limit order"""
+        """Create a limit order with specified parameters.
+        
+        Args:
+            order: OrderRequest object containing:
+                - product_id: Trading pair (e.g., 'BTC-USD')
+                - side: Order side ('BUY' or 'SELL')
+                - base_size: Amount in base currency
+                - limit_price: Limit price per unit
+                - client_order_id: Optional client-specified ID
+                - time_in_force: Optional time in force ('GTC', 'GTD', 'IOC', 'FOK')
+                    GTC: Good till cancelled (default)
+                    GTD: Good till date
+                    IOC: Immediate or cancel
+                    FOK: Fill or kill
+                - cancel_after: Optional cancel time for GTD ('min', 'hour', 'day')
+                
+        Returns:
+            Dict containing response with fields:
+                - success: bool indicating if order was created
+                - success_response: Order details if successful
+                - error_response: Error details if failed
+                
+        Raises:
+            Exception: If order creation fails
+        """
         try:
-            if order.side.lower() == 'buy':
-                response = self.rest_client.limit_order_gtc_buy(
-                    client_order_id=order.client_order_id,
-                    product_id=order.product_id,
-                    base_size=order.base_size,
-                    limit_price=order.limit_price
-                )
-            else:
-                response = self.rest_client.limit_order_gtc_sell(
-                    client_order_id=order.client_order_id,
-                    product_id=order.product_id,
-                    base_size=order.base_size,
-                    limit_price=order.limit_price
-                )
+            # Reset order tracking
+            self.order_filled = False
+            self.limit_order_id = None
+            
+            # Determine which SDK method to call based on side and time_in_force
+            time_in_force = getattr(order, 'time_in_force', 'GTC').upper()
+            side = order.side.lower()
+            
+            order_params = {
+                'client_order_id': order.client_order_id,
+                'product_id': order.product_id,
+                'base_size': order.base_size,
+                'limit_price': order.limit_price
+            }
+            
+            # Add cancel_after if GTD
+            if time_in_force == 'GTD' and hasattr(order, 'cancel_after'):
+                order_params['cancel_after'] = order.cancel_after
+            
+            # Select appropriate SDK method
+            if side == 'buy':
+                if time_in_force == 'GTD':
+                    response = self.rest_client.limit_order_gtd_buy(**order_params)
+                elif time_in_force == 'IOC':
+                    response = self.rest_client.limit_order_ioc_buy(**order_params)
+                elif time_in_force == 'FOK':
+                    response = self.rest_client.limit_order_fok_buy(**order_params)
+                else:  # GTC is default
+                    response = self.rest_client.limit_order_gtc_buy(**order_params)
+            else:  # sell
+                if time_in_force == 'GTD':
+                    response = self.rest_client.limit_order_gtd_sell(**order_params)
+                elif time_in_force == 'IOC':
+                    response = self.rest_client.limit_order_ioc_sell(**order_params)
+                elif time_in_force == 'FOK':
+                    response = self.rest_client.limit_order_fok_sell(**order_params)
+                else:  # GTC is default
+                    response = self.rest_client.limit_order_gtc_sell(**order_params)
             
             if response['success']:
                 order_id = response['success_response']['order_id']
-                logger.info(f"Limit order created: {order_id}")
+                self.limit_order_id = order_id  # Store for WebSocket tracking
+                logger.info(f"Limit order created: {order_id} ({time_in_force})")
             else:
                 logger.error(f"Failed to create order: {response['error_response']}")
             

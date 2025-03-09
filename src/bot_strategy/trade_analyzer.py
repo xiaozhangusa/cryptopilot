@@ -123,12 +123,19 @@ class TradeAnalysis:
             analysis['historical_success_rate'] = swing_stats['success_rate']
             analysis['avg_swing_duration'] = swing_stats['avg_duration']
             
-            # Adjust viability check
+            # Adjust viability check with swing stats
             analysis['is_viable'] = (
                 analysis['risk_reward_ratio'] >= 2.0 and
                 analysis['profit_cost_ratio'] > 0.05 and
                 analysis['net_profit'] > 0 and
                 swing_stats['success_rate'] > 0.6  # At least 60% success rate
+            )
+        else:
+            # Set default viability check without swing stats
+            analysis['is_viable'] = (
+                analysis['risk_reward_ratio'] >= 2.0 and
+                analysis['profit_cost_ratio'] > 0.05 and
+                analysis['net_profit'] > 0
             )
         
         # Add risk rating
@@ -192,7 +199,10 @@ class TradeAnalysis:
             print("   Efficiency: 🌟 Excellent profit potential")
 
         print("\n📋 Trading Criteria Met:")
-        if not analysis['is_viable']:
+        # Ensure 'is_viable' is in the analysis dict
+        is_viable = analysis.get('is_viable', False)
+        
+        if not is_viable:
             print("   ❌ Trade rejected due to:")
             if analysis['risk_reward_ratio'] < 2.0:
                 print("   - Poor risk/reward ratio (needs 1:2 minimum)")

@@ -44,20 +44,20 @@ def main():
         
         secrets = load_local_secrets()
         logger.info(f"Secrets loaded successfully")
-        coinbase_client = CoinbaseAdvancedClient(
+        client = CoinbaseAdvancedClient(
             api_key=secrets['api_key'],
             api_secret=secrets['api_secret']
         )
         
         # Display all accounts and their metadata
-        display_account_details(coinbase_client)
+        display_account_details(client)
         
         # Initialize strategy
         strategy = SwingStrategy(timeframe=timeframe)
         logger.info("Strategy initialized successfully")
         
         # Initialize order manager
-        order_manager = OrderManager(coinbase_client)
+        order_manager = OrderManager(client)
 
         # Loop forever
         while True:
@@ -102,7 +102,7 @@ def main():
                 print(f"📊 Fetching market data for {symbol}...", flush=True)
                 
                 # Add timestamp to API call to prevent caching
-                candles = coinbase_client.get_product_candles(
+                candles = client.get_product_candles(
                     product_id=symbol,
                     granularity=timeframe.value
                 )
@@ -140,47 +140,89 @@ def main():
                     print("\n🤖 Analyzing market conditions...")
                     signal = strategy.generate_signal(symbol, prices, timestamps)
                     
-                    # if signal:
-                    if True:
-                        # Analyze trade potential
-                        # analyzer = TradeAnalysis(
-                        #     investment=10.0,  # $10 test trade
-                        #     entry_price=signal.price,
-                        #     timeframe=timeframe  # Pass the timeframe
-                        # )
-                        # analysis = analyzer.analyze(prices, signal.action)
-                        # analyzer.print_analysis(analysis, signal.symbol, signal.action, prices)
+                    # Process the signal if it exists
+                    if signal:
+                        print(f"\n🔔 Got trading signal: {signal.action} {signal.symbol} at ${signal.price:.2f}")
                         
-                        if trading_mode == 'simulation':
-                            print(f"\n🔸 SIMULATION MODE:")
-                            # print(f"\n🔶 Creating selling limit order for BTC-USDT...")
-                            print(f"\n🔶 Creating smart limit buy order for SOL-USD...")
-                            
-                            # Create a smart limit order with custom parameters
-                            # Default parameters: 95% of market price, 10% of available balance
-                            order = order_manager.create_smart_limit_order(
-                                product_id='SOL-USD',
-                                side='BUY',
-                                price_percentage=0.95,  # 95% of current price for buy limit order
-                                balance_fraction=0.1    # Use 10% of available USD balance
+                        try:
+                            # Analyze trade potential
+                            analyzer = TradeAnalysis(
+                                investment=0.1,  # Small test investment
+                                entry_price=signal.price,
+                                timeframe=timeframe
                             )
+                            analysis = analyzer.analyze(prices, signal.action)
+                            analyzer.print_analysis(analysis, signal.symbol, signal.action, prices)
                             
-                            response = order_manager.place_order(order)
-                            if response['success']:
-                                logger.info(f"✅ Smart limit buy order placed successfully: {response}")
+                            if trading_mode == 'simulation':
+                                print(f"\n🔸 SIMULATION MODE:")
+                                
+                                # Use symbol from signal if available, otherwise default to SOL-USD
+                                trading_pair = signal.symbol if hasattr(signal, 'symbol') else symbol
+                                trading_action = signal.action if hasattr(signal, 'action') else 'BUY'
+                                
+                                if trading_action == 'BUY':
+                                    print(f"\n🔶 Creating smart limit buy order for {trading_pair}...")
+                                    
+                                    # Create a smart limit order with custom parameters
+                                    # Default parameters: 95% of market price, 10% of available balance
+                                    order = order_manager.create_smart_limit_order(
+                                        product_id=trading_pair,
+                                        side='BUY',
+                                        price_percentage=0.95,  # 95% of current price for buy limit order
+                                        balance_fraction=0.1    # Use 10% of available USD balance
+                                    )
+
+                                    try:
+                                        response = order_manager.place_order(order)
+                                        if hasattr(response, 'order_id'):
+                                            logger.info(f"✅ Smart limit buy order placed successfully: {response.order_id}")
+                                        else:
+                                            error_msg = getattr(response, 'error', 'Unknown error')
+                                            logger.warning(f"❌ Order not placed: {error_msg}")
+                                    except Exception as e:
+                                        logger.error(f"Error placing buy order: {str(e)}")
+                                    
+                                elif trading_action == 'SELL':
+                                    print(f"\n🔶 Creating limit sell order for {trading_pair} based on trading signal...")
+                                    
+                                    try:
+                                        # Create a sell order using the existing create_smart_limit_order method
+                                        order = order_manager.create_smart_limit_order(
+                                            product_id=trading_pair,
+                                            side='SELL',
+                                            price_percentage=1.05,  # 105% of current price for sell limit order
+                                            balance_fraction=1.0    # Use 100% of available balance or last buy
+                                        )
+                                        
+                                        if order:  # Only proceed if an order was created
+                                            response = order_manager.place_order(order)
+                                            if hasattr(response, 'order_id'):
+                                                logger.info(f"✅ Limit sell order placed successfully: {response.order_id}")
+                                            else:
+                                                error_msg = getattr(response, 'error', 'Unknown error')
+                                                logger.warning(f"❌ Order not placed: {error_msg}")
+                                        else:
+                                            logger.warning(f"❌ Could not create sell order - check balance and order history")
+                                    except Exception as e:
+                                        logger.error(f"Error creating or placing sell order: {str(e)}")
+                                
                             else:
-                                logger.warning(f"❌ Order not placed: {response['error']}")
+                                print(f"\n🔶 LIVE MODE: Executing trade...")
+                                try:
+                                    order = OrderRequest(
+                                        product_id=signal.symbol,
+                                        side=signal.action.lower(),
+                                        order_type='MARKET',
+                                        quote_size='10'
+                                    )
+                                    response = client.create_market_order(order)
+                                    logger.info(f"Order placed: {response}")
+                                except Exception as e:
+                                    logger.error(f"Error placing market order: {str(e)}")
+                        except Exception as e:
+                            logger.error(f"Error processing signal: {str(e)}")
                             
-                        else:
-                            print(f"\n🔶 LIVE MODE: Executing trade...")
-                            order = OrderRequest(
-                                product_id=signal.symbol,
-                                side=signal.action.lower(),
-                                order_type='MARKET',
-                                quote_size='10'
-                            )
-                            response = coinbase_client.create_market_order(order)
-                            logger.info(f"Order placed: {response}")
                     else:
                         print("\n😴 No trading signals generated")
                     

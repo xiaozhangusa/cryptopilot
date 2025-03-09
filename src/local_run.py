@@ -96,7 +96,8 @@ def main():
                 if is_boundary_time:
                     print(f"🔄 Checking at {timeframe.value} candle boundary time")
                 
-                symbol = 'BTC-USD'
+                # symbol = 'BTC-USD'
+                symbol = 'SOL-USD'
                 print("\n" + "="*50, flush=True)
                 print(f"📊 Fetching market data for {symbol}...", flush=True)
                 

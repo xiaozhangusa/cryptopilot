@@ -49,9 +49,9 @@ class CoinbaseAdvancedClient:
         """
         self.rest_client = RESTClient(
             api_key=api_key,
-            api_secret=api_secret,
-            verbose=verbose
+            api_secret=api_secret
         )
+        self.verbose = verbose  # Store verbose setting at client level
         self.ws_client: Optional[WSClient] = None
         self.order_filled = False
         self.limit_order_id = None
@@ -128,12 +128,16 @@ class CoinbaseAdvancedClient:
             accounts = []
             currency_counts = {}  # To track duplicate currencies
             
+            # Check if verbose mode is enabled (defaults to False if not found)
+            verbose_mode = getattr(self, 'verbose', False)
+            
             for account in response.accounts:
                 # Handle the nested dictionary structure from the API
                 account_dict = account.to_dict()
                 
-                # Log the full account structure for debugging
-                logger.debug(f"Account structure: {account_dict}")
+                # Log the full account structure for debugging only in verbose mode
+                if verbose_mode:
+                    logger.debug(f"Account structure: {account_dict}")
                 
                 # Safely extract values with better error handling
                 try:
@@ -168,9 +172,9 @@ class CoinbaseAdvancedClient:
                         hold=Decimal('0')
                     ))
             
-            # Log duplicate currencies if any
+            # Log duplicate currencies if any (only in verbose mode)
             duplicates = {curr: count for curr, count in currency_counts.items() if count > 1}
-            if duplicates:
+            if duplicates and verbose_mode:
                 logger.info(f"Found duplicate currency accounts: {duplicates}")
                 
                 # Group accounts by currency for clearer logging
@@ -180,11 +184,12 @@ class CoinbaseAdvancedClient:
                     for i, acc in enumerate(matching):
                         logger.info(f"  - {currency} account {i+1}: Balance = {acc.available_balance}, UUID = {acc.uuid}")
             
-            # Debug log all accounts and their balances
-            for account in accounts:
-                logger.info(f"Account {account.currency}: available={account.available_balance}, hold={account.hold}")
+            # Debug log all accounts and their balances (only in verbose mode)
+            if verbose_mode:
+                for account in accounts:
+                    logger.info(f"Account {account.currency}: available={account.available_balance}, hold={account.hold}")
                 
-            logger.info(f"Retrieved {len(accounts)} accounts")
+            logger.info(f"Retrieved {len(accounts)} accounts" + ("" if verbose_mode else " (silent mode)"))
             return accounts
         except Exception as e:
             logger.error(f"Error getting accounts: {str(e)}")

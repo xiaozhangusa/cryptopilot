@@ -5,9 +5,10 @@ import json
 from decimal import Decimal
 import asyncio
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import time
+import traceback
 
 from coinbase.rest import RESTClient
 from coinbase.websocket import WSClient
@@ -455,56 +456,121 @@ class CoinbaseAdvancedClient:
     def get_product_candles(self, product_id: str, granularity: str = 'FIVE_MINUTE') -> List[dict]:
         """Get historical candles for a product"""
         try:
-            # 1. Get timeframe properties
+            # Get timeframe properties
             timeframe = Timeframe(granularity)
-            lookback_minutes = timeframe.minutes * (timeframe.lookback_periods + 14)
+            minutes_in_timeframe = timeframe.minutes
             
-            # 2. Calculate timestamps in UTC with debug info
-            current_time_utc = int(datetime.now(utc_tz).timestamp())
-            current_time_est = datetime.now(est_tz)
+            # Debug header with timestamp info
+            print("\n" + "="*80)
+            print(f"CANDLE RETRIEVAL DEBUG - {granularity}")
+            print("="*80)
             
-            end = str(current_time_utc)
-            start = str(current_time_utc - lookback_minutes * 60)
+            # Current time in various formats for debugging
+            current_time = datetime.now(utc_tz)
+            current_time_utc = int(current_time.timestamp())
+            current_time_est = current_time.astimezone(est_tz)
             
-            # Debug timestamps
-            print("\n" + "="*50)
-            print(f"DETAILED TIMING CHECK:")
-            print(f"Current time EST: {current_time_est}")
-            print(f"Current time UTC: {datetime.now(utc_tz)}")
-            print(f"Request window:")
-            print(f"  Start: {datetime.fromtimestamp(int(start), utc_tz).astimezone(est_tz)} EST")
-            print(f"  End: {datetime.fromtimestamp(int(end), utc_tz).astimezone(est_tz)} EST")
+            print(f"Current exact time: {current_time_est.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]} {current_time_est.strftime('%Z')}")
+            print(f"Current UTC timestamp: {current_time_utc}")
             
-            # 3. Make API request using string timestamps as required by API
-            response = self.rest_client.get_candles(
-                product_id=product_id,
-                start=start,      # String timestamp as required
-                end=end,         # String timestamp as required
-                granularity=timeframe.value,
-                limit=300
+            # For FIVE_MINUTE candles, calculate the start of the current candle
+            # This is critical for understanding if we should have the latest candle yet
+            minutes_since_hour = current_time_est.minute
+            current_candle_minute = (minutes_since_hour // minutes_in_timeframe) * minutes_in_timeframe
+            seconds_into_current_candle = (minutes_since_hour - current_candle_minute) * 60 + current_time_est.second
+            
+            current_candle_start = current_time_est.replace(
+                minute=current_candle_minute, 
+                second=0, 
+                microsecond=0
             )
             
-            # 4. Sort and check candles
+            # Calculate when the next candle should start
+            next_candle_start = current_candle_start + timedelta(minutes=minutes_in_timeframe)
+            
+            print(f"Current {granularity} candle period: {current_candle_start.strftime('%H:%M:%S')} to {next_candle_start.strftime('%H:%M:%S')} {current_time_est.strftime('%Z')}")
+            print(f"Seconds into current candle period: {seconds_into_current_candle} of {minutes_in_timeframe*60}")
+            
+            # Use a far future end time to ensure we get all candles including the most recent
+            # This is important for avoiding API timestamp quirks
+            future_time = current_time_utc + 3600  # Look 1 hour ahead (far future for candle purposes)
+            end = str(future_time)
+            
+            # Calculate the start time based on how many candles we need
+            # Using a large number to ensure we get enough historical data
+            candle_count = max(timeframe.lookback_periods + 20, 50)  # Get extra candles for good measure
+            seconds_per_candle = minutes_in_timeframe * 60
+            lookback_seconds = seconds_per_candle * candle_count
+            start_time = current_time_utc - lookback_seconds
+            start = str(start_time)
+            
+            # Detailed timing info for the request
+            print(f"\nRequest parameters:")
+            print(f"  Start time: {datetime.fromtimestamp(int(start), utc_tz).astimezone(est_tz).strftime('%Y-%m-%d %H:%M:%S')} {current_time_est.strftime('%Z')}")
+            print(f"  End time: {datetime.fromtimestamp(int(end), utc_tz).astimezone(est_tz).strftime('%Y-%m-%d %H:%M:%S')} {current_time_est.strftime('%Z')} (future)")
+            print(f"  Candle count: {candle_count}")
+            print(f"  Granularity: {granularity}")
+            
+            # For the REST client we need to stick to the documented parameters
+            response = self.rest_client.get_candles(
+                product_id=product_id,
+                start=start,  # Required - start time for historical data
+                end=end,      # Future time
+                granularity=granularity,
+                limit=candle_count
+            )
+            
+            # Sort candles newest first for easier analysis
             candles = sorted(response.candles, key=lambda x: x.start, reverse=True)
-            # print(f"Candles: {candles}")
             
-            if candles:
-                print("\nReceived candles:")
-                for i, candle in enumerate(candles[:3]):
-                    # Convert string timestamp to integer before creating datetime
-                    candle_time = datetime.fromtimestamp(int(candle.start), utc_tz).astimezone(est_tz)
-                    print(f"Candle {i}: {candle_time} EST")
-                newest_candle = candles[0]  # First candle should be newest
-                oldest_candle = candles[-1]  # Last candle should be oldest
-                print("\nCANDLE TIME RANGE:")
-                print(f"Newest candle: {datetime.fromtimestamp(int(newest_candle.start), utc_tz).astimezone(est_tz)} EST")
-                print(f"Oldest candle: {datetime.fromtimestamp(int(oldest_candle.start), utc_tz).astimezone(est_tz)} EST")
-            print("="*50 + "\n")
+            if not candles:
+                print("❌ No candles received.")
+                return []
             
+            # Detailed analysis of the received candles
+            print(f"\nReceived {len(candles)} candles.")
+            
+            # Check the newest and oldest candles for time range
+            newest_candle = candles[0]
+            oldest_candle = candles[-1]
+            
+            newest_time = datetime.fromtimestamp(int(newest_candle.start), utc_tz)
+            oldest_time = datetime.fromtimestamp(int(oldest_candle.start), utc_tz)
+            
+            newest_time_est = newest_time.astimezone(est_tz)
+            oldest_time_est = oldest_time.astimezone(est_tz)
+            
+            print(f"Candle time range: {oldest_time_est.strftime('%Y-%m-%d %H:%M:%S')} to {newest_time_est.strftime('%Y-%m-%d %H:%M:%S')} {current_time_est.strftime('%Z')}")
+            
+            # Calculate lag
+            lag_time = current_time - newest_time
+            lag_seconds = lag_time.total_seconds()
+            lag_minutes = lag_seconds / 60
+            
+            print(f"Time since newest candle: {lag_minutes:.2f} minutes ({lag_seconds:.2f} seconds)")
+            
+            # Check if we should have the current candle yet
+            if seconds_into_current_candle < 10:
+                print(f"⚠️ Current candle period just started {seconds_into_current_candle:.2f} seconds ago - normal not to have it yet")
+            elif lag_minutes > minutes_in_timeframe:
+                print(f"⚠️ WARNING: Data is significantly delayed by {lag_minutes:.2f} minutes (more than one candle period)")
+            else:
+                print(f"ℹ️ Latest candle is {lag_minutes:.2f} minutes old - normal for {granularity}")
+            
+            # Show the 5 most recent candles for detailed debugging
+            print("\nMost recent candles:")
+            for i, candle in enumerate(candles[:5]):
+                candle_time = datetime.fromtimestamp(int(candle.start), utc_tz).astimezone(est_tz)
+                candle_end = candle_time + timedelta(minutes=minutes_in_timeframe)
+                print(f"Candle {i}: {candle_time.strftime('%H:%M:%S')} - {candle_end.strftime('%H:%M:%S')} | ${float(candle.close):.2f} | Vol: {float(candle.volume):.4f}")
+            
+            print("="*80 + "\n")
             return candles
             
         except Exception as e:
-            logger.error(f"Failed to get candles: {str(e)}")
+            logger.error(f"Failed to get {granularity} candles: {str(e)}")
+            print(f"❌ Error getting candles: {str(e)}")
+            print(f"Stack trace: ", traceback.format_exc())
             return []
 
     def cancel_orders(self, order_ids: List[str]) -> Dict:

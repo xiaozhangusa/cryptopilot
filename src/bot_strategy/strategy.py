@@ -148,8 +148,18 @@ class SwingStrategy:
             logger.error("Invalid price or timestamp data")
             return
         
+        # Note: Timestamps are displayed in Eastern Time (ET) for market hours reference,
+        # regardless of the server's timezone. This is standard practice for US financial markets.
         print("\n📈 Candle Analysis:")
         print(f"Timeframe: {self.timeframe.value}")
+        
+        # Add current time marker for reference
+        current_time_utc = datetime.now(utc_tz)
+        current_time_est = current_time_utc.astimezone(est_tz)
+        print(f"Current time: {current_time_est.strftime('%H:%M:%S')} EST - Data may lag behind")
+        
+        # Get timezone abbreviation for display
+        tz_abbr = current_time_est.strftime('%Z')
         
         # Define consistent column widths to ensure alignment
         time_width = 12
@@ -158,59 +168,79 @@ class SwingStrategy:
         gain_width = 10
         loss_width = 10
         
-        # Header with proper spacing
-        print("\n" + "│ " + "Time".ljust(time_width) + "Price".ljust(price_width) + 
+        # Header with proper spacing and timezone info
+        print("\n" + "│ " + f"Time ({tz_abbr})".ljust(time_width) + "Price".ljust(price_width) + 
               "Change".ljust(change_width) + "Gain".ljust(gain_width) + "Loss".ljust(loss_width))
         print("│ " + "-" * (time_width + price_width + change_width + gain_width + loss_width))
         
-        # Determine if prices are in reverse order
-        is_reversed = len(prices) > 1 and prices[0] > prices[-1]
+        # CRITICAL: First, let's make sure our data is correctly sorted by timestamp
+        # Create combined data of prices and timestamps
+        combined_data = list(zip(prices, timestamps))
         
-        # Create copies for display (newest first)
-        display_prices = prices.copy()
-        display_timestamps = timestamps.copy()
+        # Sort by timestamp in descending order (newest first)
+        combined_data.sort(key=lambda x: x[1], reverse=True)
         
-        # Make sure display data is newest-first for better readability
-        if not is_reversed:
-            display_prices = list(reversed(display_prices))
-            display_timestamps = list(reversed(display_timestamps))
-            
-        # Get chronological prices (oldest first) for calculations
-        chronological_prices = self._ensure_chronological_order(prices)
+        # Unpack the sorted data
+        sorted_prices, sorted_timestamps = zip(*combined_data)
         
-        # Calculate deltas in chronological order
-        deltas = np.diff(chronological_prices)
+        # Now we have our data in the correct order - newest first
+        display_prices = list(sorted_prices)
+        display_timestamps = list(sorted_timestamps)
         
-        # Prepare changes array for display (newest first)
-        if is_reversed:
-            # If original data was newest-first, flip the deltas to match
-            changes = list(np.flip(deltas)) + [0]
-        else:
-            # If original data was oldest-first, keep reversed order from display
-            changes = list(deltas) + [0]
-            changes.reverse()
+        # Debug the timestamp range
+        newest_timestamp = display_timestamps[0]
+        oldest_timestamp = display_timestamps[-1]
+        newest_time = datetime.fromtimestamp(newest_timestamp, tz=utc_tz).astimezone(est_tz)
+        oldest_time = datetime.fromtimestamp(oldest_timestamp, tz=utc_tz).astimezone(est_tz)
         
-        # Separate gains and losses for display
-        gains = [max(0, change) for change in changes]
-        losses = [max(0, -change) for change in changes]
+        print(f"DEBUG: Full data range {oldest_time.strftime('%H:%M')} to {newest_time.strftime('%H:%M')} {tz_abbr}")
+        print(f"DEBUG: Current time: {current_time_est.strftime('%H:%M')}, newest candle time: {newest_time.strftime('%H:%M')}")
+        time_diff_minutes = (current_time_utc.timestamp() - newest_timestamp) // 60
+        print(f"DEBUG: Most recent candle is {time_diff_minutes} minutes old")
         
-        # Print most recent periods first with proper column alignment
-        periods_to_show = self.rsi_period + 1
-        for i in range(min(periods_to_show, len(display_prices))):
+        # Calculate deltas for price changes (for newest-first data)
+        deltas = []
+        for i in range(1, len(display_prices)):
+            deltas.append(display_prices[i-1] - display_prices[i])
+        deltas.append(0)  # Add a zero at the end for the oldest candle
+        
+        # Separate gains and losses
+        gains = [max(0, change) for change in deltas]
+        losses = [max(0, -change) for change in deltas]
+        
+        # Display the most recent candles (limiting to 15 for readability)
+        periods_to_show = min(15, len(display_prices))
+        
+        # Calculate the time range we're showing
+        first_shown_timestamp = display_timestamps[0]
+        last_shown_timestamp = display_timestamps[periods_to_show-1] if periods_to_show > 1 else first_shown_timestamp
+        first_shown_time = datetime.fromtimestamp(first_shown_timestamp, tz=utc_tz).astimezone(est_tz)
+        last_shown_time = datetime.fromtimestamp(last_shown_timestamp, tz=utc_tz).astimezone(est_tz)
+        
+        # Display time range from oldest to newest that we're showing
+        print(f"Showing {periods_to_show} most recent candles from {last_shown_time.strftime('%H:%M')} to {first_shown_time.strftime('%H:%M')} {tz_abbr}")
+        
+        # Print the candles
+        for i in range(periods_to_show):
             try:
                 dt = datetime.fromtimestamp(display_timestamps[i], tz=utc_tz).astimezone(est_tz)
-                time_str = dt.strftime("%H:%M")
+                # Include date in format if looking at data spanning multiple days
+                time_str = dt.strftime("%m-%d %H:%M") if self.timeframe.minutes >= 60 else dt.strftime("%H:%M")
                 price_str = f"${display_prices[i]:,.2f}"
                 
                 # Format change with proper sign
-                if changes[i] != 0:
-                    change_str = f"{changes[i]:+.2f}"
+                if i < len(deltas):
+                    change = deltas[i]
+                    if change != 0:
+                        change_str = f"{change:+.2f}"
+                    else:
+                        change_str = "-"
                 else:
                     change_str = "-"
                 
                 # Format gains and losses
-                gain_str = f"{gains[i]:.2f}" if gains[i] > 0 else "-"
-                loss_str = f"{losses[i]:.2f}" if losses[i] > 0 else "-"
+                gain_str = f"{gains[i]:.2f}" if i < len(gains) and gains[i] > 0 else "-"
+                loss_str = f"{losses[i]:.2f}" if i < len(losses) and losses[i] > 0 else "-"
                 
                 # Print with consistent column widths
                 print("│ " + time_str.ljust(time_width) + 
@@ -221,16 +251,38 @@ class SwingStrategy:
             except IndexError as e:
                 logger.error(f"Index error at position {i}: {str(e)}")
                 break
+                
+        # Add back the RSI calculation
+        # Create chronological prices (oldest first) for RSI calculation
+        chronological_prices = list(reversed(display_prices.copy()))
+        chronological_timestamps = list(reversed(display_timestamps.copy()))
         
-        # Calculate RSI using the same method as calculate_rsi
-        # Use chronological prices that are already properly ordered
+        # Calculate deltas in chronological order for RSI
+        rsi_deltas = np.diff(chronological_prices)
         
-        # Calculate deltas in chronological order
-        deltas = np.diff(chronological_prices)
+        # Separate gains and losses for RSI calculation
+        calc_gains = np.where(rsi_deltas > 0, rsi_deltas, 0)
+        calc_losses = np.where(rsi_deltas < 0, -rsi_deltas, 0)
         
-        # Separate gains and losses
-        calc_gains = np.where(deltas > 0, deltas, 0)
-        calc_losses = np.where(deltas < 0, -deltas, 0)
+        # Get the actual gain/loss values used in the RSI calculation
+        rsi_gains_used = calc_gains[-self.rsi_period:].tolist()
+        rsi_losses_used = calc_losses[-self.rsi_period:].tolist()
+        
+        # Filter out zeros to get only the actual gains and losses
+        non_zero_gains = [g for g in rsi_gains_used if g > 0]
+        non_zero_losses = [l for l in rsi_losses_used if l > 0]
+        
+        # Format the gain/loss values for display - only show non-zero values
+        # If the string becomes too long, truncate it
+        if len(non_zero_gains) > 5:
+            gain_values_str = " + ".join([f"${g:.2f}" for g in non_zero_gains[:5]]) + f" + ... ({len(non_zero_gains)-5} more)"
+        else:
+            gain_values_str = " + ".join([f"${g:.2f}" for g in non_zero_gains]) if non_zero_gains else "$0"
+        
+        if len(non_zero_losses) > 5:
+            loss_values_str = " + ".join([f"${l:.2f}" for l in non_zero_losses[:5]]) + f" + ... ({len(non_zero_losses)-5} more)"
+        else:
+            loss_values_str = " + ".join([f"${l:.2f}" for l in non_zero_losses]) if non_zero_losses else "$0"
         
         # Calculate average gain and loss
         avg_gain = np.mean(calc_gains[-self.rsi_period:])  # Include zeros
@@ -238,15 +290,38 @@ class SwingStrategy:
         rs = avg_gain / avg_loss if avg_loss != 0 else float('inf')
         rsi = 100 - (100 / (1 + rs)) if avg_loss != 0 else 100
         
-        print("\n📊 RSI Calculation:")
-        print(f"Average Gain: ${avg_gain:.2f}")
-        print(f"Average Loss: ${avg_loss:.2f}")
-        print(f"Relative Strength (RS) = Avg Gain / Avg Loss = {rs:.2f}")
-        print(f"RSI = 100 - (100 / (1 + RS)) = {rsi:.2f}")
+        # Count non-zero gains and losses for better understanding
+        non_zero_gain_count = len(non_zero_gains)
+        non_zero_loss_count = len(non_zero_losses)
         
-        # Verify the RSI matches with the calculate_rsi method
-        verify_rsi = self.calculate_rsi(prices)
-        logger.info(f"RSI Verification - Printed: {rsi:.2f}, calculate_rsi method: {verify_rsi:.2f}")
+        # Find the time range of candles used for RSI calculation
+        rsi_start_idx = max(0, len(chronological_timestamps) - self.rsi_period)
+        rsi_end_idx = len(chronological_timestamps) - 1
+        
+        # Convert RSI candle timestamps to datetime for display
+        if rsi_start_idx < len(chronological_timestamps) and rsi_end_idx < len(chronological_timestamps):
+            rsi_start_time = datetime.fromtimestamp(chronological_timestamps[rsi_start_idx], tz=utc_tz).astimezone(est_tz)
+            rsi_end_time = datetime.fromtimestamp(chronological_timestamps[rsi_end_idx], tz=utc_tz).astimezone(est_tz)
+            
+            print("\n📊 RSI Calculation:")
+            print(f"Using {self.rsi_period} periods from {rsi_start_time.strftime('%H:%M')} to {rsi_end_time.strftime('%H:%M')} {tz_abbr}")
+            
+            # Display the gain/loss values used in calculation
+            print(f"Gains in period ({non_zero_gain_count}/{self.rsi_period} candles): {gain_values_str}")
+            print(f"Losses in period ({non_zero_loss_count}/{self.rsi_period} candles): {loss_values_str}")
+            
+            # Show the full calculation with concrete values
+            # Use the same gain_values_str and loss_values_str from above
+            print(f"Average Gain ({gain_values_str}) / {self.rsi_period}: ${avg_gain:.2f}")
+            print(f"Average Loss ({loss_values_str}) / {self.rsi_period}: ${avg_loss:.2f}")
+            print(f"Relative Strength (RS) = Avg Gain / Avg Loss = {rs:.2f}")
+            print(f"RSI = 100 - (100 / (1 + RS)) = {rsi:.2f}")
+            
+            # Verify the RSI matches with the calculate_rsi method
+            verify_rsi = self.calculate_rsi(prices)
+            logger.info(f"RSI Verification - Printed: {rsi:.2f}, calculate_rsi method: {verify_rsi:.2f}")
+        else:
+            print("\n❌ Not enough data for RSI calculation")
 
     def analyze_rsi_swings(self, prices: List[float], timestamps: List[int]) -> dict:
         """Analyze RSI swings from oversold to overbought conditions

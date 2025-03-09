@@ -10,6 +10,7 @@ from bot_strategy.timeframes import Timeframe
 from utils.chart import print_price_chart
 from trading.order_manager import OrderManager
 from decimal import Decimal
+from datetime import datetime, timedelta
 
 # Configure logging to output to stdout with proper formatting
 logging.basicConfig(
@@ -58,15 +59,48 @@ def main():
         # Initialize order manager
         order_manager = OrderManager(coinbase_client)
 
-        # Trading loop
+        # Loop forever
         while True:
             try:
-                # Get market data
+                # Get current time and minute
+                current_time = datetime.now()
+                current_minute = current_time.minute
+                current_second = current_time.second
+                
+                # Calculate exact candle boundary information
+                minutes_in_timeframe = timeframe.minutes
+                
+                # Calculate which candle we're in
+                current_candle_minute = (current_minute // minutes_in_timeframe) * minutes_in_timeframe
+                seconds_into_current_candle = (current_minute - current_candle_minute) * 60 + current_second
+                
+                # Calculate when the next candle should start
+                current_candle_start = current_time.replace(
+                    minute=current_candle_minute, 
+                    second=0, 
+                    microsecond=0
+                )
+                next_candle_start = current_candle_start + timedelta(minutes=minutes_in_timeframe)
+                seconds_to_next_candle = (next_candle_start - current_time).total_seconds()
+                
+                # Debug message with precise timing info
+                print(f"\n🕒 TIMING DEBUG: {current_time.strftime('%H:%M:%S')} | ", end="")
+                print(f"Current {timeframe.value} candle: {current_candle_start.strftime('%H:%M:%S')} to {next_candle_start.strftime('%H:%M:%S')}")
+                print(f"  Seconds into current candle: {seconds_into_current_candle:.1f}s | Seconds until next candle: {seconds_to_next_candle:.1f}s")
+                
+                # Determine if we're at a candle boundary (either just after or just before)
+                # We check more frequently around candle boundaries to catch new data quickly
+                boundary_window = min(30, minutes_in_timeframe * 60 * 0.1)  # 10% of timeframe or 30 sec, whichever is smaller
+                is_boundary_time = seconds_into_current_candle < boundary_window or seconds_to_next_candle < boundary_window
+                
+                if is_boundary_time:
+                    print(f"🔄 Checking at {timeframe.value} candle boundary time")
+                
                 symbol = 'BTC-USD'
                 print("\n" + "="*50, flush=True)
                 print(f"📊 Fetching market data for {symbol}...", flush=True)
                 
-                # Let client.py handle all the timestamp and API details
+                # Add timestamp to API call to prevent caching
                 candles = coinbase_client.get_product_candles(
                     product_id=symbol,
                     granularity=timeframe.value
@@ -161,9 +195,53 @@ def main():
                     else:
                         print("\n😴 No trading signals generated")
                     
-                    # Wait for next iteration
-                    print(f"\n⏳ Waiting {300/60:.1f} minutes for next analysis...")
-                    time.sleep(300)  # 5 minutes
+                    # Wait for next iteration - use timing based on the specific timeframe
+                    last_run_time = datetime.now()
+                    
+                    # Calculate next check time based on timeframe and current time
+                    # Get timeframe in minutes and seconds
+                    minutes_in_timeframe = timeframe.minutes
+                    seconds_in_timeframe = minutes_in_timeframe * 60
+                    
+                    # Calculate time to next boundary for any timeframe
+                    current_minute = last_run_time.minute
+                    current_second = last_run_time.second
+                    
+                    # For any timeframe, calculate minutes to the next boundary
+                    minutes_to_boundary = minutes_in_timeframe - (current_minute % minutes_in_timeframe)
+                    if minutes_to_boundary == minutes_in_timeframe:
+                        minutes_to_boundary = 0
+                    
+                    seconds_to_boundary = minutes_to_boundary * 60 - current_second
+                    
+                    if seconds_to_boundary <= 0:
+                        seconds_to_boundary += seconds_in_timeframe
+                    
+                    # Define check frequency based on timeframe size
+                    # For shorter timeframes, check more often
+                    if minutes_in_timeframe <= 15:  # 15 min or less
+                        standard_check_interval = min(60, seconds_in_timeframe // 5)  # At least 5 checks per timeframe
+                        boundary_threshold = 60  # Check more frequently within 60 seconds of boundary
+                    elif minutes_in_timeframe <= 60:  # Hour or less
+                        standard_check_interval = min(300, seconds_in_timeframe // 10)  # At least 10 checks per timeframe
+                        boundary_threshold = 120  # Check more frequently within 2 minutes of boundary
+                    else:  # Longer timeframes
+                        standard_check_interval = min(900, seconds_in_timeframe // 20)  # At least 20 checks per timeframe
+                        boundary_threshold = 300  # Check more frequently within 5 minutes of boundary
+                    
+                    # If we're far from a boundary, wait standard interval
+                    # If we're close to a boundary, wait until just after the boundary
+                    if seconds_to_boundary > boundary_threshold:
+                        wait_time = standard_check_interval
+                    else:
+                        wait_time = seconds_to_boundary + 5  # Wait until 5 seconds after boundary
+                    
+                    boundary_time = last_run_time + timedelta(seconds=seconds_to_boundary)
+                    print(f"\n⏳ Next {timeframe.value} candle boundary at {boundary_time.strftime('%H:%M:%S')}")
+                    
+                    next_check = last_run_time + timedelta(seconds=wait_time)
+                    print(f"⏳ Checking again at {next_check.strftime('%H:%M:%S')} ({wait_time/60:.1f} minutes)")
+                    time.sleep(wait_time)
                     
                 except Exception as e:
                     logger.error(f"Error processing candles: {str(e)}")

@@ -141,18 +141,19 @@ def main():
                     signal = strategy.generate_signal(symbol, prices, timestamps)
                     
                     # Process the signal if it exists
-                    if signal:
-                        print(f"\n🔔 Got trading signal: {signal.action} {signal.symbol} at ${signal.price:.2f}")
+                    # if signal:
+                    if True:
+                        # print(f"\n🔔 Got trading signal: {signal.action} {signal.symbol} at ${signal.price:.2f}")
                         
                         try:
-                            # Analyze trade potential
-                            analyzer = TradeAnalysis(
-                                investment=0.1,  # Small test investment
-                                entry_price=signal.price,
-                                timeframe=timeframe
-                            )
-                            analysis = analyzer.analyze(prices, signal.action)
-                            analyzer.print_analysis(analysis, signal.symbol, signal.action, prices)
+                            # # Analyze trade potential
+                            # analyzer = TradeAnalysis(
+                            #     investment=0.1,  # Small test investment
+                            #     entry_price=signal.price,
+                            #     timeframe=timeframe
+                            # )
+                            # analysis = analyzer.analyze(prices, signal.action)
+                            # analyzer.print_analysis(analysis, signal.symbol, signal.action, prices)
                             
                             if trading_mode == 'simulation':
                                 print(f"\n🔸 SIMULATION MODE:")
@@ -170,16 +171,24 @@ def main():
                                         product_id=trading_pair,
                                         side='BUY',
                                         price_percentage=0.95,  # 95% of current price for buy limit order
-                                        balance_fraction=0.1    # Use 10% of available USD balance
+                                        balance_fraction=0.05    # Use 10% of available USD balance
                                     )
 
                                     try:
+                                        # Debug the order before placing
+                                        logger.debug(f"ABOUT TO PLACE ORDER: {order.__dict__ if hasattr(order, '__dict__') else order}")
+                                        
+                                        # Get the response
                                         response = order_manager.place_order(order)
-                                        if hasattr(response, 'order_id'):
-                                            logger.info(f"✅ Smart limit buy order placed successfully: {response.order_id}")
+                                        
+                                        # Log the response for debugging
+                                        print(f"Response from place_order: {response}")
+                                        print(f"Response TYPE: {type(response)}")
+                                        if response and response['success']:
+                                            order_id = response['success_response']['order_id']
+                                            print(f"Limit buy order created: {order_id}")
                                         else:
-                                            error_msg = getattr(response, 'error', 'Unknown error')
-                                            logger.warning(f"❌ Order not placed: {error_msg}")
+                                            logger.warning(f"❌ Order not placed: {response}")
                                     except Exception as e:
                                         logger.error(f"Error placing buy order: {str(e)}")
                                     
@@ -196,12 +205,24 @@ def main():
                                         )
                                         
                                         if order:  # Only proceed if an order was created
-                                            response = order_manager.place_order(order)
-                                            if hasattr(response, 'order_id'):
-                                                logger.info(f"✅ Limit sell order placed successfully: {response.order_id}")
-                                            else:
-                                                error_msg = getattr(response, 'error', 'Unknown error')
-                                                logger.warning(f"❌ Order not placed: {error_msg}")
+                                            try:
+                                                # Debug the order before placing
+                                                logger.debug(f"ABOUT TO PLACE ORDER: {order.__dict__ if hasattr(order, '__dict__') else order}")
+                                                
+                                                # Get the response
+                                                response = order_manager.place_order(order)
+                                                
+                                                # Log the response for debugging
+                                                print(f"SELL Response from place_order: {response}")                                                
+                                                # Check the response based on its type
+                                                if response and response['success']:
+                                                    order_id = response['success_response']['order_id']
+                                                    print(f"Limit sell order created: {order_id}")
+                                                else:
+                                                    logger.warning(f"❌ Order not placed: {response}")
+                                            except Exception as e:
+                                                logger.error(f"Error placing sell order: {str(e)}")
+                                                logger.debug(f"Exception details:", exc_info=True)  # Print stack trace
                                         else:
                                             logger.warning(f"❌ Could not create sell order - check balance and order history")
                                     except Exception as e:

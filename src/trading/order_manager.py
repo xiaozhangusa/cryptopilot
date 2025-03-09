@@ -4,6 +4,8 @@ import logging
 from coinbase_api.client import CoinbaseAdvancedClient, OrderRequest, Account  # Import Account from our client
 import time
 from os import environ
+import uuid
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -84,44 +86,84 @@ class OrderValidator:
         self.balance_manager = balance_manager
 
     def validate_order(self, order: OrderRequest) -> None:
-        """Validate order, raise InsufficientBalanceError if invalid"""
+        """Validate if there is sufficient balance for the order.
+        
+        Args:
+            order: The order to validate
+            
+        Raises:
+            InsufficientBalanceError: If there isn't enough balance to place the order
+        """
+        # Extract base and quote assets from product_id
         base_asset, quote_asset = order.product_id.split('-')
-        size = Decimal(order.base_size or order.quote_size)
         
-        # Log order details for debugging
-        logger.info(f"Validating order: {order.product_id}, side={order.side}, size={size}")
+        # Only log the relevant accounts for this trading pair
+        relevant_assets = [base_asset, quote_asset]
         
-        if order.side.upper() == 'BUY':
-            check_asset = quote_asset
-            required_amount = size * Decimal(order.limit_price) if order.limit_price else size
+        # Get account info only for relevant assets
+        base_account = self.balance_manager.get_balance(base_asset)
+        quote_account = self.balance_manager.get_balance(quote_asset)
+        
+        # Log only the relevant account balances
+        if base_account:
+            logger.info(f"Balance check - Account {base_asset}: available={base_account.available_balance}")
         else:
-            check_asset = base_asset
-            required_amount = size
-
-        # Get all accounts first to log them for debugging
-        all_accounts = self.balance_manager.client.get_accounts()
-        for acc in all_accounts:
-            logger.info(f"Balance check - Account {acc.currency}: available={acc.available_balance}")
+            logger.info(f"Balance check - Account {base_asset}: not found")
             
-        # Now get the specific account we need
-        account = self.balance_manager.get_balance(check_asset)
+        if quote_account:
+            logger.info(f"Balance check - Account {quote_asset}: available={quote_account.available_balance}")
+        else:
+            logger.info(f"Balance check - Account {quote_asset}: not found")
         
-        logger.info(f"Checking {check_asset} balance: required={required_amount}, " +
-                   f"available={account.available_balance if account else 'None'}")
-        
-        if not account:
-            raise InsufficientBalanceError(
-                f"No {check_asset} account found"
-            )
+        # Continue with validation logic
+        if order.side == 'BUY':
+            # For buy orders, check quote currency (e.g., USD) balance
+            if not quote_account:
+                raise InsufficientBalanceError(f"No {quote_asset} account found")
             
-        if account.available_balance < required_amount:
-            raise InsufficientBalanceError(
-                f"Insufficient {check_asset} balance. "
-                f"Required: {required_amount}, "
-                f"Available: {account.available_balance}"
-            )
-        
-        logger.info(f"Order validation passed: sufficient {check_asset} balance")
+            available_balance = float(quote_account.available_balance)
+            
+            if order.order_type == 'MARKET':
+                # For market orders, check quote_size against available balance
+                if not order.quote_size:
+                    raise ValueError("quote_size must be specified for MARKET BUY orders")
+                
+                required_balance = float(order.quote_size)
+                logger.info(f"Checking {quote_asset} balance: required={required_balance}, available={available_balance}")
+                
+                if required_balance > available_balance:
+                    raise InsufficientBalanceError(
+                        f"Insufficient {quote_asset} balance: {available_balance} available, {required_balance} required"
+                    )
+            else:  # LIMIT
+                # For limit buy orders, multiply base_size by limit_price
+                if not order.base_size or not order.limit_price:
+                    raise ValueError("base_size and limit_price must be specified for LIMIT orders")
+                
+                required_balance = float(order.base_size) * float(order.limit_price)
+                logger.info(f"Checking {quote_asset} balance: required={required_balance}, available={available_balance}")
+                
+                if required_balance > available_balance:
+                    raise InsufficientBalanceError(
+                        f"Insufficient {quote_asset} balance: {available_balance} available, {required_balance} required"
+                    )
+        else:  # SELL
+            # For sell orders, check base currency (e.g., BTC) balance
+            if not base_account:
+                raise InsufficientBalanceError(f"No {base_asset} account found")
+            
+            available_balance = float(base_account.available_balance)
+            
+            if not order.base_size:
+                raise ValueError("base_size must be specified for SELL orders")
+            
+            required_balance = float(order.base_size)
+            logger.info(f"Checking {base_asset} balance: required={required_balance}, available={available_balance}")
+            
+            if required_balance > available_balance:
+                raise InsufficientBalanceError(
+                    f"Insufficient {base_asset} balance: {available_balance} available, {required_balance} required"
+                )
 
 class OrderManager:
     def __init__(self, client: CoinbaseAdvancedClient):
@@ -255,20 +297,27 @@ class OrderManager:
         return order
         
     def place_order(self, order: OrderRequest):
-        """Place an order with validation"""
+        """Place an order using the client API
+
+        Args:
+            order: Order request parameters
+
+        Returns:
+            The response from the API
+        """
+        # Always validate balance regardless of mode
+        trading_mode = os.environ.get('TRADING_MODE', 'simulation')
+        logger.info(f"Validating balance for {order.product_id} order in {trading_mode} mode")
+        
+        # Log order details for debugging
+        logger.info(f"Order details: {order.product_id}, side={order.side}, size={order.base_size}")
+        
         try:
-            # Check if we're running in simulation mode
-            # This assumes there's some way to determine if we're in simulation mode
-            # You might need to adjust this based on how your app determines simulation mode
-            trading_mode = environ.get('TRADING_MODE', 'simulation')
-            
-            # Parse product ID to get base and quote assets
-            if '-' in order.product_id:
-                base_asset, quote_asset = order.product_id.split('-')
-            else:
-                # For product IDs without a dash, assume quote is USD or USDT
-                base_asset = order.product_id.replace('USD', '').replace('USDT', '')
-                quote_asset = 'USD' if 'USD' in order.product_id else 'USDT'
+            # Show projected balances after order fill
+            base_asset, quote_asset = order.product_id.split('-')
+            base_size_float = float(order.base_size) if order.base_size else 0
+            limit_price_float = float(order.limit_price) if order.limit_price else 0
+            quote_size_float = base_size_float * limit_price_float if order.order_type == 'LIMIT' else float(order.quote_size or 0)
             
             # Get current balances for both assets
             base_account = self.balance_manager.get_balance(base_asset)
@@ -349,9 +398,6 @@ class OrderManager:
             print(f"  {quote_asset}: ${projected_quote_balance:.2f}")
             print("="*50)
             
-            # Always validate balance regardless of mode
-            logger.info(f"Validating order balance ({trading_mode} mode)")
-            
             # Perform validation
             try:
                 self.validator.validate_order(order)
@@ -367,7 +413,46 @@ class OrderManager:
             
             # Place order
             if order.order_type == 'LIMIT':
-                return self.client.create_limit_order(order)
+                response = self.client.create_limit_order(order)
+                # Debug log the response structure
+                logger.debug(f"RESPONSE TYPE: {type(response)}")
+                logger.debug(f"RESPONSE STRUCTURE: {response}")
+                if isinstance(response, dict):
+                    logger.debug(f"RESPONSE KEYS: {list(response.keys())}")
+                    if 'success_response' in response:
+                        logger.debug(f"SUCCESS_RESPONSE STRUCTURE: {response['success_response']}")
+                    if 'error_response' in response:
+                        logger.debug(f"ERROR_RESPONSE STRUCTURE: {response['error_response']}")
+                
+                # Modify the response for simulation mode to make it easier to work with
+                if trading_mode.lower() == 'simulation' and isinstance(response, dict) and response.get('success'):
+                    # Create a simpler response object with just the order_id
+                    from types import SimpleNamespace
+                    simple_response = SimpleNamespace()
+                    
+                    # Extract order_id from success_response if available
+                    if 'success_response' in response and 'order_id' in response['success_response']:
+                        order_id = response['success_response']['order_id']
+                        simple_response.order_id = order_id
+                        logger.debug(f"SIMULATION MODE: Creating simplified response with order_id: {order_id}")
+                    else:
+                        simulated_id = "simulated-order-" + str(uuid.uuid4())
+                        simple_response.order_id = simulated_id
+                        logger.debug(f"SIMULATION MODE: Creating simplified response with generated order_id: {simulated_id}")
+                    
+                    # Debug output to verify the simple_response object
+                    logger.debug(f"SIMPLIFIED RESPONSE TYPE: {type(simple_response)}")
+                    logger.debug(f"SIMPLIFIED RESPONSE ATTRIBUTES: {dir(simple_response)}")
+                    logger.debug(f"HAS order_id ATTRIBUTE: {hasattr(simple_response, 'order_id')}")
+                    if hasattr(simple_response, 'order_id'):
+                        logger.debug(f"order_id VALUE: {simple_response.order_id}")
+                    
+                    logger.info(f"Transformed API response to simple object for simulation mode")
+                    return simple_response
+                
+                # Add debug for non-simulation or unsuccessful response
+                logger.debug(f"Returning original response: simulation_mode={trading_mode.lower()=='simulation'}, success={response.get('success', False) if isinstance(response, dict) else 'N/A'}")
+                return response
             return self.client.create_market_order(order)
             
         except InsufficientBalanceError as e:

@@ -589,4 +589,67 @@ class CoinbaseAdvancedClient:
             return response
         except Exception as e:
             logger.error(f"Failed to cancel orders: {str(e)}")
+            raise
+
+    def get_filled_orders(self, product_id: str, limit: int = 50) -> list:
+        """
+        Get recently filled orders for a specific product
+        
+        Args:
+            product_id: Trading pair to get orders for
+            limit: Maximum number of orders to retrieve (default: 50)
+            
+        Returns:
+            List of filled orders sorted by creation time (newest first)
+        """
+        try:
+            orders = self.rest_client.list_orders(
+                product_id=product_id,
+                limit=limit
+            )
+            
+            # Filter for filled orders
+            filled_orders = [order for order in orders if order.status == 'FILLED']
+            
+            # Sort by creation time (newest first)
+            filled_orders.sort(key=lambda x: x.created_time, reverse=True)
+            
+            if filled_orders:
+                logger.info(f"Found {len(filled_orders)} filled orders for {product_id}")
+            else:
+                logger.info(f"No filled orders found for {product_id}")
+                
+            return filled_orders
+        except Exception as e:
+            logger.error(f"Error getting filled orders for {product_id}: {str(e)}")
+            raise
+    
+    def get_last_filled_buy_order(self, product_id: str):
+        """
+        Get the most recent filled buy order for a specific product
+        
+        Args:
+            product_id: Trading pair to get the last buy order for
+            
+        Returns:
+            The most recent filled buy order or None if no recent buy orders
+        """
+        try:
+            filled_orders = self.get_filled_orders(product_id)
+            
+            # Filter for buy orders
+            buy_orders = [order for order in filled_orders if order.side == 'BUY']
+            
+            if buy_orders:
+                last_buy = buy_orders[0]  # First order is the most recent
+                logger.info(
+                    f"Last filled buy order for {product_id}: "
+                    f"{last_buy.filled_size} @ ${float(last_buy.average_filled_price):.2f}"
+                )
+                return last_buy
+            else:
+                logger.info(f"No recent filled buy orders found for {product_id}")
+                return None
+        except Exception as e:
+            logger.error(f"Error getting last filled buy order for {product_id}: {str(e)}")
             raise 

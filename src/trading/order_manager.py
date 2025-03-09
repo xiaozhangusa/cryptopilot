@@ -132,7 +132,7 @@ class OrderManager:
     def create_smart_limit_order(self, 
                                product_id: str, 
                                side: str, 
-                               price_percentage: float = 0.95, 
+                               price_percentage: float = None, 
                                balance_fraction: float = 0.1,
                                time_in_force: str = 'GTC') -> OrderRequest:
         """
@@ -141,14 +141,19 @@ class OrderManager:
         Args:
             product_id: Trading pair (e.g., 'BTC-USD', 'SOL-USDT')
             side: 'BUY' or 'SELL'
-            price_percentage: For buy orders, percentage of current price (e.g., 0.95 for 95%)
-                              For sell orders, percentage would be > 1 (e.g., 1.05 for 105%)
+            price_percentage: For buy orders: percentage of current price (e.g., 0.95 for 95%)
+                              For sell orders: percentage of current price (e.g., 1.05 for 105%)
+                              If None, defaults to 0.95 for buy and 1.05 for sell
             balance_fraction: Fraction of available balance to use (e.g., 0.1 for 10%)
             time_in_force: Order time in force (default: 'GTC')
             
         Returns:
             OrderRequest object ready to be submitted
         """
+        # Set default price percentage based on side if not provided
+        if price_percentage is None:
+            price_percentage = 0.95 if side == 'BUY' else 1.05
+            
         # Extract base and quote assets from product ID
         if '-' in product_id:
             base_asset, quote_asset = product_id.split('-')
@@ -165,34 +170,60 @@ class OrderManager:
             logger.error(f"Error getting market price: {str(e)}")
             raise ValueError(f"Could not get current price for {product_id}: {str(e)}")
         
-        # Get available balance
+        # Calculate the limit price
+        limit_price = current_price * price_percentage
+        
+        # Different logic for buy vs sell orders
         if side == 'BUY':
-            # For buy orders, we need quote asset balance (e.g., USD)
+            # For buy orders, use a percentage of available quote balance
             asset_account = self.balance_manager.get_balance(quote_asset)
             available_balance = float(asset_account.available_balance) if asset_account else 0
             
             # Calculate order parameters
-            limit_price = current_price * price_percentage
             # Amount of quote currency to spend (e.g., USD)
             quote_amount = available_balance * balance_fraction
             # Calculate base amount (e.g., BTC) to buy with the quote amount
             base_amount = quote_amount / limit_price if limit_price > 0 else 0
             
+            # Order strategy description
+            strategy_description = f"Using {balance_fraction*100:.0f}% of available {quote_asset} balance ({available_balance:.2f})"
+            
         else:  # SELL
-            # For sell orders, we need base asset balance (e.g., BTC)
+            # For sell orders, try to get the last buy order
+            last_buy_order = None
+            last_buy_size = None
+            try:
+                last_buy_order = self.client.get_last_filled_buy_order(product_id)
+                if last_buy_order and hasattr(last_buy_order, 'filled_size'):
+                    last_buy_size = float(last_buy_order.filled_size)
+                    print(f"Last buy order size: {last_buy_size} {base_asset}")
+            except Exception as e:
+                logger.warning(f"Could not get last filled buy order: {str(e)}")
+            
+            # Get current balance of base asset
             asset_account = self.balance_manager.get_balance(base_asset)
             available_balance = float(asset_account.available_balance) if asset_account else 0
             
-            # Calculate order parameters
-            limit_price = current_price * price_percentage  # For sell, this should be > 1
-            # Amount of base currency to sell (e.g., BTC)
-            base_amount = available_balance * balance_fraction
+            # Determine base amount to sell based on the requested strategy:
+            # min(last buy order size, available balance)
+            if last_buy_size is not None:
+                base_amount = min(available_balance, last_buy_size) * balance_fraction
+                strategy_description = (
+                    f"Using min(last buy order size, available balance) * balance_fraction\n"
+                    f"= min({last_buy_size:.8f}, {available_balance:.8f}) * {balance_fraction:.2f}\n"
+                    f"= {base_amount:.8f} {base_asset}"
+                )
+            else:
+                # If no last buy order found, just use percentage of available balance
+                base_amount = available_balance * balance_fraction
+                strategy_description = f"Using {balance_fraction*100:.0f}% of available {base_asset} balance ({available_balance:.8f})"
+            
             # Calculate quote amount that will be received
             quote_amount = base_amount * limit_price
         
         # Round base amount to 8 decimal places and convert to string
         base_size = '{:.8f}'.format(base_amount).rstrip('0').rstrip('.') if base_amount > 0 else '0'
-        # Round limit price appropriately
+        # Round limit price appropriately (usually 2 decimal places for major pairs)
         limit_price_str = '{:.2f}'.format(limit_price)
         
         # Print the strategy details
@@ -202,11 +233,14 @@ class OrderManager:
         print(f"Market Price: ${current_price:.2f}")
         print(f"Price Adjustment: {price_percentage*100:.0f}% of market price")
         print(f"Limit Price: ${limit_price:.2f}")
-        print(f"Available {quote_asset if side == 'BUY' else base_asset} Balance: {available_balance:.8f}")
-        print(f"Balance Fraction: {balance_fraction*100:.0f}%")
+        print(f"Strategy: {strategy_description}")
         print(f"Amount to {'Spend' if side == 'BUY' else 'Sell'}: " + 
               (f"${quote_amount:.2f}" if side == 'BUY' else f"{base_amount:.8f} {base_asset}"))
         print(f"Base Size: {base_size} {base_asset}")
+        
+        # Estimated quote amount for reporting
+        estimated_value = base_amount * limit_price if side == 'SELL' else quote_amount
+        print(f"Estimated {'Proceeds' if side == 'SELL' else 'Cost'}: ${estimated_value:.2f}")
         
         # Create the order request
         order = OrderRequest(

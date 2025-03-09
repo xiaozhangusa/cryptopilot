@@ -129,6 +129,97 @@ class OrderManager:
         self.balance_manager = BalanceManager(client)
         self.validator = OrderValidator(self.balance_manager)
 
+    def create_smart_limit_order(self, 
+                               product_id: str, 
+                               side: str, 
+                               price_percentage: float = 0.95, 
+                               balance_fraction: float = 0.1,
+                               time_in_force: str = 'GTC') -> OrderRequest:
+        """
+        Create a smart limit order using a percentage of market price and fraction of available balance
+        
+        Args:
+            product_id: Trading pair (e.g., 'BTC-USD', 'SOL-USDT')
+            side: 'BUY' or 'SELL'
+            price_percentage: For buy orders, percentage of current price (e.g., 0.95 for 95%)
+                              For sell orders, percentage would be > 1 (e.g., 1.05 for 105%)
+            balance_fraction: Fraction of available balance to use (e.g., 0.1 for 10%)
+            time_in_force: Order time in force (default: 'GTC')
+            
+        Returns:
+            OrderRequest object ready to be submitted
+        """
+        # Extract base and quote assets from product ID
+        if '-' in product_id:
+            base_asset, quote_asset = product_id.split('-')
+        else:
+            # Handle products without dash (e.g., BTCUSD)
+            base_asset = product_id.replace('USD', '').replace('USDT', '')
+            quote_asset = 'USD' if 'USD' in product_id else 'USDT'
+        
+        # Get current market price
+        try:
+            current_price = self.client.get_product_price(product_id)
+            print(f"Current market price for {product_id}: ${current_price:.2f}")
+        except Exception as e:
+            logger.error(f"Error getting market price: {str(e)}")
+            raise ValueError(f"Could not get current price for {product_id}: {str(e)}")
+        
+        # Get available balance
+        if side == 'BUY':
+            # For buy orders, we need quote asset balance (e.g., USD)
+            asset_account = self.balance_manager.get_balance(quote_asset)
+            available_balance = float(asset_account.available_balance) if asset_account else 0
+            
+            # Calculate order parameters
+            limit_price = current_price * price_percentage
+            # Amount of quote currency to spend (e.g., USD)
+            quote_amount = available_balance * balance_fraction
+            # Calculate base amount (e.g., BTC) to buy with the quote amount
+            base_amount = quote_amount / limit_price if limit_price > 0 else 0
+            
+        else:  # SELL
+            # For sell orders, we need base asset balance (e.g., BTC)
+            asset_account = self.balance_manager.get_balance(base_asset)
+            available_balance = float(asset_account.available_balance) if asset_account else 0
+            
+            # Calculate order parameters
+            limit_price = current_price * price_percentage  # For sell, this should be > 1
+            # Amount of base currency to sell (e.g., BTC)
+            base_amount = available_balance * balance_fraction
+            # Calculate quote amount that will be received
+            quote_amount = base_amount * limit_price
+        
+        # Round base amount to 8 decimal places and convert to string
+        base_size = '{:.8f}'.format(base_amount).rstrip('0').rstrip('.') if base_amount > 0 else '0'
+        # Round limit price appropriately
+        limit_price_str = '{:.2f}'.format(limit_price)
+        
+        # Print the strategy details
+        print("\n📊 SMART LIMIT ORDER STRATEGY")
+        print(f"Product: {product_id}")
+        print(f"Side: {side}")
+        print(f"Market Price: ${current_price:.2f}")
+        print(f"Price Adjustment: {price_percentage*100:.0f}% of market price")
+        print(f"Limit Price: ${limit_price:.2f}")
+        print(f"Available {quote_asset if side == 'BUY' else base_asset} Balance: {available_balance:.8f}")
+        print(f"Balance Fraction: {balance_fraction*100:.0f}%")
+        print(f"Amount to {'Spend' if side == 'BUY' else 'Sell'}: " + 
+              (f"${quote_amount:.2f}" if side == 'BUY' else f"{base_amount:.8f} {base_asset}"))
+        print(f"Base Size: {base_size} {base_asset}")
+        
+        # Create the order request
+        order = OrderRequest(
+            product_id=product_id,
+            side=side,
+            order_type='LIMIT',
+            base_size=base_size,
+            limit_price=limit_price_str,
+            time_in_force=time_in_force
+        )
+        
+        return order
+        
     def place_order(self, order: OrderRequest):
         """Place an order with validation"""
         try:
@@ -224,13 +315,21 @@ class OrderManager:
             print(f"  {quote_asset}: ${projected_quote_balance:.2f}")
             print("="*50)
             
-            # Only validate balance for live trading, not for simulation
-            if trading_mode.lower() == 'live':
-                logger.info(f"Live trading mode - validating order balance")
-                # Validate order
+            # Always validate balance regardless of mode
+            logger.info(f"Validating order balance ({trading_mode} mode)")
+            
+            # Perform validation
+            try:
                 self.validator.validate_order(order)
-            else:
-                logger.info(f"Simulation mode - skipping balance validation")
+                logger.info("Balance validation passed ✅")
+            except InsufficientBalanceError as e:
+                # In simulation mode, we'll log the warning but still allow the order
+                if trading_mode.lower() == 'simulation':
+                    logger.warning(f"Balance validation failed, but continuing in simulation mode: {str(e)}")
+                else:
+                    # In live mode, raise the error to prevent the order
+                    logger.error(f"Balance validation failed in live mode: {str(e)}")
+                    raise
             
             # Place order
             if order.order_type == 'LIMIT':

@@ -152,34 +152,22 @@ def main():
                         # analyzer.print_analysis(analysis, signal.symbol, signal.action, prices)
                         
                         if trading_mode == 'simulation':
-                            # print(f"\n🔸 SIMULATION MODE:")
-                            # print(f"\n🔶 Creating limit order for USDT-USDC...")
-                            # order = OrderRequest(
-                            #     product_id='USDT-USDC',
-                            #     side='BUY',
-                            #     order_type='LIMIT',
-                            #     base_size='2',
-                            #     limit_price='0.9800',
-                            #     time_in_force='GTC'
-                            # )
-                            # response = order_manager.place_order(order)
-                            # if response['success']:
-                            #     logger.info(f"✅ Order placed successfully: {response}")
-                            # else:
-                            #     logger.warning(f"❌ Order not placed: {response['error']}")
                             print(f"\n🔸 SIMULATION MODE:")
-                            print(f"\n🔶 Creating selling limit order for BTC-USDT...")
-                            order = OrderRequest(
-                                product_id='BTC-USDT',
-                                side='SELL',
-                                order_type='LIMIT',
-                                base_size='0.001',
-                                limit_price='110000',
-                                time_in_force='GTC'
+                            # print(f"\n🔶 Creating selling limit order for BTC-USDT...")
+                            print(f"\n🔶 Creating smart limit buy order for SOL-USD...")
+                            
+                            # Create a smart limit order with custom parameters
+                            # Default parameters: 95% of market price, 10% of available balance
+                            order = order_manager.create_smart_limit_order(
+                                product_id='SOL-USD',
+                                side='BUY',
+                                price_percentage=0.95,  # 95% of current price for buy limit order
+                                balance_fraction=0.1    # Use 10% of available USD balance
                             )
+                            
                             response = order_manager.place_order(order)
                             if response['success']:
-                                logger.info(f"✅ Limit sell order placed successfully: {response}")
+                                logger.info(f"✅ Smart limit buy order placed successfully: {response}")
                             else:
                                 logger.warning(f"❌ Order not placed: {response['error']}")
                             

@@ -94,6 +94,20 @@ class OrderValidator:
         Raises:
             InsufficientBalanceError: If there isn't enough balance to place the order
         """
+        # First check: Ensure order sizes are not zero
+        base_size = float(order.base_size or 0)
+        quote_size = float(order.quote_size or 0)
+        
+        # Validate non-zero sizes based on order type
+        if order.order_type == 'LIMIT' and base_size <= 0:
+            raise ValueError(f"Invalid order: base_size must be greater than 0 for LIMIT orders, got {base_size}")
+        
+        if order.order_type == 'MARKET':
+            if order.side == 'BUY' and quote_size <= 0:
+                raise ValueError(f"Invalid order: quote_size must be greater than 0 for MARKET BUY orders, got {quote_size}")
+            if order.side == 'SELL' and base_size <= 0:
+                raise ValueError(f"Invalid order: base_size must be greater than 0 for MARKET SELL orders, got {base_size}")
+        
         # Extract base and quote assets from product_id
         base_asset, quote_asset = order.product_id.split('-')
         
@@ -172,47 +186,36 @@ class OrderManager:
         self.validator = OrderValidator(self.balance_manager)
 
     def create_smart_limit_order(self, 
-                               product_id: str, 
-                               side: str, 
-                               price_percentage: float = None, 
-                               balance_fraction: float = 0.1,
-                               time_in_force: str = 'GTC') -> OrderRequest:
-        """
-        Create a smart limit order using a percentage of market price and fraction of available balance
+                             product_id: str, 
+                             side: str, 
+                             price_percentage: float = None, 
+                             balance_fraction: float = 0.1,
+                             time_in_force: str = 'GTC') -> OrderRequest:
+        """Create a limit order with a smart price and size strategy.
         
         Args:
-            product_id: Trading pair (e.g., 'BTC-USD', 'SOL-USDT')
+            product_id: The trading pair (e.g., 'BTC-USD')
             side: 'BUY' or 'SELL'
-            price_percentage: For buy orders: percentage of current price (e.g., 0.95 for 95%)
-                              For sell orders: percentage of current price (e.g., 1.05 for 105%)
-                              If None, defaults to 0.95 for buy and 1.05 for sell
-            balance_fraction: Fraction of available balance to use (e.g., 0.1 for 10%)
-            time_in_force: Order time in force (default: 'GTC')
+            price_percentage: For buy orders, percentage of current price (e.g., 0.95 = 95% of current price)
+                             For sell orders, percentage of current price (e.g., 1.05 = 105% of current price)
+            balance_fraction: Fraction of available balance to use (e.g., 0.1 = 10% of available balance)
+            time_in_force: Order time-in-force (GTC, GTD, IOC, FOK)
             
         Returns:
-            OrderRequest object ready to be submitted
+            OrderRequest object for the limit order
         """
-        # Set default price percentage based on side if not provided
-        if price_percentage is None:
-            price_percentage = 0.95 if side == 'BUY' else 1.05
-            
-        # Extract base and quote assets from product ID
-        if '-' in product_id:
-            base_asset, quote_asset = product_id.split('-')
-        else:
-            # Handle products without dash (e.g., BTCUSD)
-            base_asset = product_id.replace('USD', '').replace('USDT', '')
-            quote_asset = 'USD' if 'USD' in product_id else 'USDT'
+        # Get base and quote assets from the product_id
+        base_asset, quote_asset = product_id.split('-')
         
         # Get current market price
-        try:
-            current_price = self.client.get_product_price(product_id)
-            print(f"Current market price for {product_id}: ${current_price:.2f}")
-        except Exception as e:
-            logger.error(f"Error getting market price: {str(e)}")
-            raise ValueError(f"Could not get current price for {product_id}: {str(e)}")
+        current_price = self.client.get_product_price(product_id)
+        print(f"Current market price for {product_id}: ${current_price}")
         
-        # Calculate the limit price
+        # Set default price percentage if not provided
+        if price_percentage is None:
+            price_percentage = 0.95 if side == 'BUY' else 1.05
+        
+        # Calculate limit price as a percentage of current price
         limit_price = current_price * price_percentage
         
         # Different logic for buy vs sell orders
@@ -256,41 +259,38 @@ class OrderManager:
                     f"= {base_amount:.8f} {base_asset}"
                 )
             else:
-                # If no last buy order found, just use percentage of available balance
+                # Just use available balance
                 base_amount = available_balance * balance_fraction
-                strategy_description = f"Using {balance_fraction*100:.0f}% of available {base_asset} balance ({available_balance:.8f})"
+                strategy_description = (
+                    f"Using {balance_fraction*100:.0f}% of available {base_asset} balance ({available_balance:.8f})\n"
+                    f"= {base_amount:.8f} {base_asset}"
+                )
             
-            # Calculate quote amount that will be received
-            quote_amount = base_amount * limit_price
+            # Check if we have enough to sell
+            if base_amount <= 0:
+                logger.warning(f"Cannot create SELL order: insufficient {base_asset} balance ({available_balance:.8f})")
+                return None
         
-        # Round base amount to 8 decimal places and convert to string
-        base_size = '{:.8f}'.format(base_amount).rstrip('0').rstrip('.') if base_amount > 0 else '0'
-        # Round limit price appropriately (usually 2 decimal places for major pairs)
-        limit_price_str = '{:.2f}'.format(limit_price)
+        # Round to 8 decimal places for crypto amounts
+        base_amount = round(base_amount, 8)
         
-        # Print the strategy details
-        print("\n📊 SMART LIMIT ORDER STRATEGY")
-        print(f"Product: {product_id}")
-        print(f"Side: {side}")
-        print(f"Market Price: ${current_price:.2f}")
-        print(f"Price Adjustment: {price_percentage*100:.0f}% of market price")
-        print(f"Limit Price: ${limit_price:.2f}")
-        print(f"Strategy: {strategy_description}")
-        print(f"Amount to {'Spend' if side == 'BUY' else 'Sell'}: " + 
-              (f"${quote_amount:.2f}" if side == 'BUY' else f"{base_amount:.8f} {base_asset}"))
-        print(f"Base Size: {base_size} {base_asset}")
+        # Format limit price to 2 decimal places for USD
+        formatted_limit_price = "{:.2f}".format(limit_price)
         
-        # Estimated quote amount for reporting
-        estimated_value = base_amount * limit_price if side == 'SELL' else quote_amount
-        print(f"Estimated {'Proceeds' if side == 'SELL' else 'Cost'}: ${estimated_value:.2f}")
+        # Print order strategy details
+        print(f"\n💡 {side} Order Strategy for {product_id}:")
+        print(f"  ● Market price: ${current_price:.2f}")
+        print(f"  ● Limit price: ${limit_price:.2f} ({price_percentage*100:.0f}% of market price)")
+        print(f"  ● Available balance: {available_balance:.8f} {base_asset if side == 'SELL' else quote_asset}")
+        print(f"  ● {strategy_description}")
         
-        # Create the order request
+        # Create order request
         order = OrderRequest(
             product_id=product_id,
             side=side,
             order_type='LIMIT',
-            base_size=base_size,
-            limit_price=limit_price_str,
+            base_size=str(base_amount),
+            limit_price=formatted_limit_price,
             time_in_force=time_in_force
         )
         

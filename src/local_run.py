@@ -141,19 +141,11 @@ def main():
                     signal = strategy.generate_signal(symbol, prices, timestamps)
                     
                     # Process the signal if it exists
-                    # if signal:
-                    if True:
-                        # print(f"\n🔔 Got trading signal: {signal.action} {signal.symbol} at ${signal.price:.2f}")
+                    if signal:
+                    # if True:
+                        print(f"\n🔔 Got trading signal: {signal.action} {signal.symbol} at ${signal.price:.2f}")
                         
                         try:
-                            # # Analyze trade potential
-                            # analyzer = TradeAnalysis(
-                            #     investment=0.1,  # Small test investment
-                            #     entry_price=signal.price,
-                            #     timeframe=timeframe
-                            # )
-                            # analysis = analyzer.analyze(prices, signal.action)
-                            # analyzer.print_analysis(analysis, signal.symbol, signal.action, prices)
                             
                             if trading_mode == 'simulation':
                                 print(f"\n🔸 SIMULATION MODE:")
@@ -161,8 +153,22 @@ def main():
                                 # Use symbol from signal if available, otherwise default to SOL-USD
                                 trading_pair = signal.symbol if hasattr(signal, 'symbol') else symbol
                                 trading_action = signal.action if hasattr(signal, 'action') else 'BUY'
+                                # trading_action = 'SELL'
                                 
                                 if trading_action == 'BUY':
+                                    # Analyze trade potential
+                                    balance_fraction = 0.05  # Use 5% of available balance
+                                    investment = balance_fraction * 0.1 
+                                    price_percentage = 0.95 # 95% of current price for buy limit order
+                                    entry_price = signal.price * price_percentage
+                                    analyzer = TradeAnalysis(
+                                        investment=investment,
+                                        entry_price=entry_price,
+                                        timeframe=timeframe
+                                    )
+                                    analysis = analyzer.analyze(prices, signal.action)
+                                    analyzer.print_analysis(analysis, signal.symbol, signal.action, prices)    
+                                
                                     print(f"\n🔶 Creating smart limit buy order for {trading_pair}...")
                                     
                                     # Create a smart limit order with custom parameters
@@ -170,8 +176,8 @@ def main():
                                     order = order_manager.create_smart_limit_order(
                                         product_id=trading_pair,
                                         side='BUY',
-                                        price_percentage=0.95,  # 95% of current price for buy limit order
-                                        balance_fraction=0.05    # Use 10% of available USD balance
+                                        price_percentage=price_percentage,  
+                                        balance_fraction=balance_fraction   
                                     )
 
                                     try:
@@ -183,7 +189,6 @@ def main():
                                         
                                         # Log the response for debugging
                                         print(f"Response from place_order: {response}")
-                                        print(f"Response TYPE: {type(response)}")
                                         if response and response['success']:
                                             order_id = response['success_response']['order_id']
                                             print(f"Limit buy order created: {order_id}")
@@ -205,28 +210,21 @@ def main():
                                         )
                                         
                                         if order:  # Only proceed if an order was created
-                                            try:
-                                                # Debug the order before placing
-                                                logger.debug(f"ABOUT TO PLACE ORDER: {order.__dict__ if hasattr(order, '__dict__') else order}")
-                                                
-                                                # Get the response
-                                                response = order_manager.place_order(order)
-                                                
-                                                # Log the response for debugging
-                                                print(f"SELL Response from place_order: {response}")                                                
-                                                # Check the response based on its type
-                                                if response and response['success']:
-                                                    order_id = response['success_response']['order_id']
-                                                    print(f"Limit sell order created: {order_id}")
-                                                else:
-                                                    logger.warning(f"❌ Order not placed: {response}")
-                                            except Exception as e:
-                                                logger.error(f"Error placing sell order: {str(e)}")
-                                                logger.debug(f"Exception details:", exc_info=True)  # Print stack trace
+                                            # Get the response
+                                            response = order_manager.place_order(order)
+                                            
+                                            # Log the response for debugging
+                                            print(f"SELL Response from place_order: {response}")
+                                            # Check the response based on its type
+                                            if response and response['success']:
+                                                order_id = response['success_response']['order_id']
+                                                print(f"Limit sell order created: {order_id}")
+                                            else:
+                                                logger.warning(f"❌ Order not placed: {response}")
                                         else:
-                                            logger.warning(f"❌ Could not create sell order - check balance and order history")
+                                            logger.warning(f"❌ Could not create sell order: Insufficient balance")
                                     except Exception as e:
-                                        logger.error(f"Error creating or placing sell order: {str(e)}")
+                                        logger.error(f"Error placing sell order: {str(e)}")
                                 
                             else:
                                 print(f"\n🔶 LIVE MODE: Executing trade...")

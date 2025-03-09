@@ -37,22 +37,33 @@ class SwingStrategy:
         logger.info(f"Initialized {timeframe.value} strategy: "
                    f"RSI({rsi_period}) thresholds: {self.oversold}/{self.overbought}")
     
-    def _ensure_chronological_order(self, prices: List[float]) -> List[float]:
+    def _ensure_chronological_order(self, prices: List[float], timestamps: Optional[List[int]] = None) -> List[float]:
         """
         Ensure price data is in chronological order (oldest first)
         
         Args:
             prices: List of price values
+            timestamps: Optional list of corresponding timestamps
             
         Returns:
             List of prices in chronological order (oldest first)
         """
+        # If timestamps are provided, use them to determine order
+        if timestamps and len(timestamps) == len(prices):
+            # Check if timestamps are in descending order (newest first)
+            if len(timestamps) > 1 and timestamps[0] > timestamps[-1]:
+                logger.debug("Timestamps are in reverse order (newest first), reordering to oldest-first")
+                return list(reversed(prices.copy()))
+            return prices.copy()  # Already in oldest-first order
+        
+        # Fallback to the simple heuristic if no timestamps
         # Make a copy to avoid modifying the original data
         chronological_prices = prices.copy()
         
-        # Check if prices appear to be in reverse order (newest first)
+        # This is a simple heuristic and may not always be correct
+        # It assumes if first price > last price, data is in reverse (newest first)
         if len(prices) > 1 and prices[0] > prices[-1]:
-            logger.debug("Prices appear to be in reverse order, reordering to oldest-first")
+            logger.debug("No timestamps available. Prices appear to be in reverse order, reordering to oldest-first")
             chronological_prices = list(reversed(chronological_prices))
             
         return chronological_prices
@@ -67,14 +78,23 @@ class SwingStrategy:
             Timeframe.ONE_DAY: (40, 60),     # Most conservative
         }[self.timeframe]
     
-    def calculate_rsi(self, prices: List[float]) -> float:
-        """Calculate RSI using standard formula"""
+    def calculate_rsi(self, prices: List[float], timestamps: Optional[List[int]] = None) -> float:
+        """
+        Calculate RSI using standard formula
+        
+        Args:
+            prices: List of price values
+            timestamps: Optional list of corresponding timestamps for accurate ordering
+            
+        Returns:
+            RSI value (0-100)
+        """
         if len(prices) < self.rsi_period + 1:
             logger.warning(f"Not enough data for {self.timeframe.value} RSI calculation")
             return 50
         
         # Make sure prices are in chronological order (oldest first)
-        chronological_prices = self._ensure_chronological_order(prices)
+        chronological_prices = self._ensure_chronological_order(prices, timestamps)
         
         # Calculate price changes (next - current)
         deltas = np.diff(chronological_prices)
@@ -111,11 +131,16 @@ class SwingStrategy:
         price_order = "newest first (reversed)" if is_reversed else "oldest first (chronological)"
         logger.info(f"Prices appear to be in {price_order} order. First price: {prices[0]}, Last price: {prices[-1]}")
         
-        # Calculate RSI
-        rsi = self.calculate_rsi(prices)
+        # Calculate RSI using timestamps for proper ordering
+        rsi = self.calculate_rsi(prices, timestamps)
         
         # Get the current price (most recent)
-        current_price = prices[0] if is_reversed else prices[-1]
+        # Find the index of the most recent timestamp
+        if timestamps and len(timestamps) > 0:
+            most_recent_idx = timestamps.index(max(timestamps))
+            current_price = prices[most_recent_idx]
+        else:
+            current_price = prices[0] if is_reversed else prices[-1]
         
         # Log details about the RSI calculation
         logger.info(f"{self.timeframe.value} RSI calculation result: {rsi:.2f}, using {self.rsi_period} periods")
@@ -318,7 +343,7 @@ class SwingStrategy:
             print(f"RSI = 100 - (100 / (1 + RS)) = {rsi:.2f}")
             
             # Verify the RSI matches with the calculate_rsi method
-            verify_rsi = self.calculate_rsi(prices)
+            verify_rsi = self.calculate_rsi(prices, timestamps)
             logger.info(f"RSI Verification - Printed: {rsi:.2f}, calculate_rsi method: {verify_rsi:.2f}")
         else:
             print("\n❌ Not enough data for RSI calculation")
@@ -342,8 +367,9 @@ class SwingStrategy:
         # Calculate RSI for each period
         rsi_values = []
         for i in range(self.rsi_period, len(prices)):
-            window = prices[i-self.rsi_period:i+1]
-            rsi = self.calculate_rsi(window)
+            window_prices = prices[i-self.rsi_period:i+1]
+            window_timestamps = timestamps[i-self.rsi_period:i+1] if timestamps else None
+            rsi = self.calculate_rsi(window_prices, window_timestamps)
             rsi_values.append(rsi)
         
         # Find completed oversold to overbought swings

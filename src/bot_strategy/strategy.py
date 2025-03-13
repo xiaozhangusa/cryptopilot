@@ -21,7 +21,7 @@ class TradingSignal:
 
 class SwingStrategy:
     def __init__(self, 
-                 timeframe: Timeframe = Timeframe.FIVE_MIN,
+                 timeframe: Timeframe = Timeframe.FIVE_MINUTE,
                  rsi_period: int = 14):
         """Initialize strategy with timeframe-specific parameters
         
@@ -69,14 +69,19 @@ class SwingStrategy:
         return chronological_prices
     
     def _get_rsi_thresholds(self) -> Tuple[float, float]:
-        """Get RSI thresholds based on timeframe"""
-        return {
-            Timeframe.FIVE_MIN: (25, 75),    # More extreme for short timeframes
-            Timeframe.ONE_HOUR: (30, 70),    # Standard thresholds
-            Timeframe.SIX_HOUR: (35, 65),    # Less extreme
-            Timeframe.TWELVE_HOUR: (35, 65), # Less extreme
-            Timeframe.ONE_DAY: (40, 60),     # Most conservative
-        }[self.timeframe]
+        """Get RSI thresholds (oversold, overbought) based on timeframe"""
+        # Different thresholds based on timeframe
+        thresholds = {
+            Timeframe.ONE_MINUTE: (20, 80),   # Most extreme for very short timeframes
+            Timeframe.FIVE_MINUTE: (25, 75),  # More extreme for short timeframes
+            Timeframe.FIFTEEN_MINUTE: (25, 75), # More extreme for short timeframes
+            Timeframe.THIRTY_MINUTE: (30, 70), # Standard for medium timeframes
+            Timeframe.ONE_HOUR: (30, 70),     # Standard
+            Timeframe.TWO_HOUR: (35, 65),     # Less extreme
+            Timeframe.SIX_HOUR: (35, 65),     # Less extreme for longer timeframes
+            Timeframe.ONE_DAY: (40, 60)       # Least extreme for daily
+        }
+        return thresholds[self.timeframe]
     
     def calculate_rsi(self, prices: List[float], timestamps: Optional[List[int]] = None) -> float:
         """

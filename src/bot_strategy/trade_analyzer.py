@@ -44,7 +44,7 @@ class TradeAnalysis:
     def __init__(self, 
                  investment: float,
                  entry_price: float,
-                 timeframe: Timeframe = Timeframe.FIVE_MIN):
+                 timeframe: Timeframe = Timeframe.FIVE_MINUTE):
         self.investment = investment
         self.entry_price = entry_price
         self.timeframe = timeframe
@@ -52,11 +52,14 @@ class TradeAnalysis:
         
         # Adjust stop loss based on timeframe
         self.stop_loss_pct = {
-            Timeframe.FIVE_MIN: 0.01,      # 1% for 5min
-            Timeframe.ONE_HOUR: 0.02,      # 2% for 1h
-            Timeframe.SIX_HOUR: 0.03,      # 3% for 6h
-            Timeframe.TWELVE_HOUR: 0.04,   # 4% for 12h
-            Timeframe.ONE_DAY: 0.05,       # 5% for 1d
+            Timeframe.ONE_MINUTE: 0.005,     # 0.5% for 1min
+            Timeframe.FIVE_MINUTE: 0.01,     # 1% for 5min
+            Timeframe.FIFTEEN_MINUTE: 0.015, # 1.5% for 15min
+            Timeframe.THIRTY_MINUTE: 0.02,   # 2% for 30min
+            Timeframe.ONE_HOUR: 0.02,        # 2% for 1h
+            Timeframe.TWO_HOUR: 0.025,       # 2.5% for 2h
+            Timeframe.SIX_HOUR: 0.03,        # 3% for 6h
+            Timeframe.ONE_DAY: 0.05,         # 5% for 1d
         }[timeframe]
     
     def _calculate_metrics(self, prices: List[float], action: str) -> dict:

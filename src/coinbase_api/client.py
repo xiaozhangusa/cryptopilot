@@ -391,6 +391,9 @@ class CoinbaseAdvancedClient:
                 'limit_price': order.limit_price
             }
             
+            # DEBUG: Print order parameters
+            logger.debug(f"LIMIT ORDER PARAMS: {order_params}")
+            
             # Add cancel_after if GTD
             if time_in_force == 'GTD' and hasattr(order, 'cancel_after'):
                 order_params['cancel_after'] = order.cancel_after
@@ -415,17 +418,29 @@ class CoinbaseAdvancedClient:
                 else:  # GTC is default
                     response = self.rest_client.limit_order_gtc_sell(**order_params)
             
+            # DEBUG: Print raw response
+            logger.debug(f"RAW API RESPONSE: {response}")
+            logger.debug(f"RESPONSE TYPE: {type(response)}")
+            
             if response['success']:
                 order_id = response['success_response']['order_id']
                 self.limit_order_id = order_id  # Store for WebSocket tracking
                 logger.info(f"Limit order created: {order_id} ({time_in_force})")
+                # print(f"Limit order created: {order_id} ({time_in_force})")
+                
+                # DEBUG: Print success response details 
+                logger.debug(f"SUCCESS RESPONSE DETAILS: {response['success_response']}")
             else:
                 logger.error(f"Failed to create order: {response['error_response']}")
+                
+                # DEBUG: Print error response details
+                logger.debug(f"ERROR RESPONSE DETAILS: {response['error_response']}")
             
             return response
             
         except Exception as e:
             logger.error(f"Failed to create limit order: {str(e)}")
+            logger.debug(f"Exception details: {str(e)}", exc_info=True)  # Include stack trace
             raise
 
     def close(self):

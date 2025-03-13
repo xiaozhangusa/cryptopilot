@@ -38,9 +38,19 @@ def load_local_secrets():
 def main():
     try:
         trading_mode = os.getenv('TRADING_MODE', 'simulation')
-        timeframe = Timeframe(os.getenv('TIMEFRAME', 'FIVE_MINUTE'))
+        # enum Timeframe(Enum):
+        #     ONE_MINUTE = 60
+        #     FIVE_MINUTE = 300
+        #     FIFTEEN_MINUTE = 900
+        #     THIRTY_MINUTE = 1800
+        #     ONE_HOUR = 3600
+        #     FOUR_HOURS = 14400
+        # timeframe = Timeframe(os.getenv('TIMEFRAME', 'FIVE_MINUTE'))
+ 
+        # os.getenv('TIMEFRAME', default='FIVE_MINUTE') if not set
+        timeframe = Timeframe[os.getenv('TIMEFRAME', 'THIRTY_MINUTE')]
         logger.info(f"Starting trading bot in {trading_mode} mode")
-        logger.info(f"Using {timeframe.value} timeframe")
+        logger.info(f"Using {timeframe.value} timeframe ({timeframe.minutes} minutes)")
         
         secrets = load_local_secrets()
         logger.info(f"Secrets loaded successfully")
@@ -159,7 +169,7 @@ def main():
                                     # Analyze trade potential
                                     balance_fraction = 0.05  # Use 5% of available balance
                                     investment = balance_fraction * 0.1 
-                                    price_percentage = 0.95 # 95% of current price for buy limit order
+                                    price_percentage = 0.99 # 95% of current price for buy limit order
                                     entry_price = signal.price * price_percentage
                                     analyzer = TradeAnalysis(
                                         investment=investment,

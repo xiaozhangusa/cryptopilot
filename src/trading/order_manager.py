@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, List
 import logging
 from coinbase_api.client import CoinbaseAdvancedClient, OrderRequest, Account  # Import Account from our client
 import time
@@ -19,6 +19,14 @@ class OrderPlacementError(Exception):
 
 class OrderCooldownError(Exception):
     """Raised when an order is attempted during its cooldown period"""
+    pass
+
+class PriceNotProfitableError(Exception):
+    """Raised when selling at a price that is below the average purchase price"""
+    pass
+
+class NoMatchingBuyOrdersError(Exception):
+    """Raised when no matching buy orders can be found for FIFO selling"""
     pass
 
 class BalanceManager:
@@ -185,6 +193,22 @@ class OrderValidator:
                     f"Insufficient {base_asset} balance: {available_balance} available, {required_balance} required"
                 )
 
+class FillData:
+    """Class to store information about a filled order"""
+    def __init__(self, order_id: str, product_id: str, side: str, size: float, price: float, 
+                 created_at: datetime, fees: float = 0.0):
+        self.order_id = order_id
+        self.product_id = product_id
+        self.side = side
+        self.size = size
+        self.price = price
+        self.created_at = created_at
+        self.fees = fees
+        self.cost_basis = price * size + fees  # Total cost including fees
+        
+    def __repr__(self):
+        return f"Fill({self.side} {self.size} @ {self.price}, created={self.created_at.strftime('%Y-%m-%d %H:%M:%S')})"
+
 class OrderManager:
     def __init__(self, client: CoinbaseAdvancedClient):
         self.client = client
@@ -193,6 +217,14 @@ class OrderManager:
         
         # Order cooldown tracking
         self._last_order_times: Dict[Tuple[str, str], datetime] = {}  # (product_id, side) -> last_order_time
+        
+        # Cache for filled orders to reduce API calls
+        self._filled_orders_cache: Dict[str, List[FillData]] = {}  # product_id -> list of FillData
+        self._filled_orders_last_update: Dict[str, datetime] = {}  # product_id -> last update time
+        self._filled_orders_cache_ttl = 300  # Cache filled orders for 5 minutes (300 seconds)
+        
+        # Track the last buy order index that was sold (for FIFO selling)
+        self._last_matched_buy_index: Dict[str, int] = {}  # product_id -> index
 
     def get_order_cooldown_period(self, timeframe: Timeframe, order_side: str) -> int:
         """
@@ -283,12 +315,202 @@ class OrderManager:
         self._last_order_times[order_key] = current_time
         logger.info(f"✅ Updated last {product_id} {side} order time to {current_time.strftime('%H:%M:%S')}")
 
+    def get_filled_orders(self, product_id: str, limit: int = 50) -> List[FillData]:
+        """
+        Get a list of filled orders for a specific product, with caching
+        
+        Args:
+            product_id: Trading pair (e.g., 'BTC-USD')
+            limit: Maximum number of orders to retrieve
+            
+        Returns:
+            List of FillData objects, with most recent first
+        """
+        current_time = datetime.now()
+        
+        # Check if we have cached data that's still fresh
+        if (product_id in self._filled_orders_cache and 
+            product_id in self._filled_orders_last_update and
+            (current_time - self._filled_orders_last_update[product_id]).total_seconds() < self._filled_orders_cache_ttl):
+            return self._filled_orders_cache[product_id]
+        
+        # Otherwise, fetch from API
+        logger.info(f"Fetching filled orders for {product_id}...")
+        
+        try:
+            # This assumes the client has a method to get filled orders
+            # You may need to adjust based on the actual client API
+            filled_orders = self.client.get_filled_orders(product_id=product_id, limit=limit)
+            
+            # Convert to FillData objects
+            fill_data_list = []
+            for order in filled_orders:
+                # Adjust these based on the actual structure returned by the API
+                side = getattr(order, 'side', '').upper()
+                size = float(getattr(order, 'filled_size', 0))
+                price = float(getattr(order, 'price', 0))
+                created_at = getattr(order, 'created_at', current_time)
+                if isinstance(created_at, str):
+                    # Parse date string if needed
+                    try:
+                        created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    except:
+                        created_at = current_time
+                order_id = getattr(order, 'order_id', '')
+                fees = float(getattr(order, 'fees', 0))
+                
+                fill_data = FillData(
+                    order_id=order_id,
+                    product_id=product_id,
+                    side=side,
+                    size=size,
+                    price=price,
+                    created_at=created_at,
+                    fees=fees
+                )
+                fill_data_list.append(fill_data)
+            
+            # Sort by creation time (newest first)
+            fill_data_list.sort(key=lambda x: x.created_at, reverse=True)
+            
+            # Cache the results
+            self._filled_orders_cache[product_id] = fill_data_list
+            self._filled_orders_last_update[product_id] = current_time
+            
+            return fill_data_list
+            
+        except Exception as e:
+            logger.error(f"Error fetching filled orders for {product_id}: {str(e)}")
+            
+            # Return empty list or cached data if available
+            if product_id in self._filled_orders_cache:
+                logger.warning(f"Using cached filled orders due to error")
+                return self._filled_orders_cache[product_id]
+            return []
+
+    def get_average_purchase_price(self, product_id: str) -> float:
+        """
+        Calculate the average purchase price for a given product using filled buy orders
+        
+        Args:
+            product_id: Trading pair (e.g., 'BTC-USD')
+            
+        Returns:
+            Average purchase price or 0 if no buy orders found
+        """
+        filled_orders = self.get_filled_orders(product_id)
+        
+        # Find the most recent sell order first (as a cut-off point)
+        cutoff_time = None
+        for order in filled_orders:
+            if order.side == 'SELL':
+                cutoff_time = order.created_at
+                break
+        
+        # Process buy orders (possibly limited by cutoff)
+        total_buy_size = 0.0
+        total_cost = 0.0
+        
+        for order in filled_orders:
+            # Skip sell orders
+            if order.side != 'BUY':
+                continue
+                
+            # Stop if we hit the cutoff time
+            if cutoff_time and order.created_at <= cutoff_time:
+                break
+                
+            # Add to totals
+            total_buy_size += order.size
+            total_cost += order.cost_basis
+        
+        # Calculate average price
+        if total_buy_size > 0:
+            return total_cost / total_buy_size
+        return 0.0
+    
+    def get_next_fifo_buy_order(self, product_id: str, current_price: float) -> Optional[Tuple[float, float, datetime]]:
+        """
+        Get the next buy order to sell, using FIFO approach (oldest first)
+        
+        Args:
+            product_id: Trading pair (e.g., 'BTC-USD')
+            current_price: Current market price
+            
+        Returns:
+            Tuple of (size, price, buy_date) or None if no suitable order found
+            
+        Raises:
+            PriceNotProfitableError: If current price is below average purchase price
+        """
+        # Get average purchase price for profit check
+        avg_price = self.get_average_purchase_price(product_id)
+        
+        if avg_price <= 0:
+            logger.warning(f"No buy orders found for {product_id}, can't determine average price")
+            return None
+            
+        if current_price < avg_price:
+            raise PriceNotProfitableError(
+                f"Current price (${current_price:.2f}) is below average purchase price (${avg_price:.2f})"
+            )
+        
+        # Get filled orders
+        filled_orders = self.get_filled_orders(product_id)
+        
+        # Find the most recent sell order as cutoff
+        cutoff_time = None
+        for order in filled_orders:
+            if order.side == 'SELL':
+                cutoff_time = order.created_at
+                break
+        
+        # Extract all buy orders since the cutoff
+        buy_orders = []
+        for order in filled_orders:
+            # Only process buy orders
+            if order.side != 'BUY':
+                continue
+                
+            # Stop if we hit the cutoff time
+            if cutoff_time and order.created_at <= cutoff_time:
+                break
+                
+            # Add to our list of potential orders
+            buy_orders.append(order)
+        
+        # Sort buy orders by date (oldest first for FIFO) - note our filled_orders are newest first
+        buy_orders.reverse()
+        
+        # Get the index of the last matched buy order for this product
+        last_matched_index = self._last_matched_buy_index.get(product_id, -1)
+        
+        # Find the next buy order to match
+        if last_matched_index + 1 < len(buy_orders):
+            # We have a next buy order to match
+            next_order = buy_orders[last_matched_index + 1]
+            
+            # Update the last matched index
+            self._last_matched_buy_index[product_id] = last_matched_index + 1
+            
+            # Return the details needed for creating a matching sell order
+            return (next_order.size, next_order.price, next_order.created_at)
+        
+        # Reset the index if we've reached the end of all available buy orders
+        # This allows future sell signals to start over with the oldest unfilled buy
+        if len(buy_orders) > 0:
+            logger.info(f"All {len(buy_orders)} buy orders have been matched for {product_id}, resetting FIFO index")
+            self._last_matched_buy_index[product_id] = -1
+            
+        # No more buy orders to match
+        return None
+        
     def create_smart_limit_order(self, 
                              product_id: str, 
                              side: str, 
                              price_percentage: float = None, 
                              balance_fraction: float = 0.1,
-                             time_in_force: str = 'GTC') -> OrderRequest:
+                             time_in_force: str = 'GTC') -> Optional[OrderRequest]:
         """Create a limit order with a smart price and size strategy.
         
         Args:
@@ -300,7 +522,7 @@ class OrderManager:
             time_in_force: Order time-in-force (GTC, GTD, IOC, FOK)
             
         Returns:
-            OrderRequest object for the limit order
+            OrderRequest object for the limit order or None if no order can be created
         """
         # Get base and quote assets from the product_id
         base_asset, quote_asset = product_id.split('-')
@@ -332,6 +554,64 @@ class OrderManager:
             strategy_description = f"Using {balance_fraction*100:.0f}% of available {quote_asset} balance ({available_balance:.2f})"
             
         else:  # SELL
+            # Calculate average purchase price for profit check
+            avg_purchase_price = self.get_average_purchase_price(product_id)
+            
+            # Only sell if current price is profitable (compared to average purchase)
+            if avg_purchase_price > 0 and current_price < avg_purchase_price:
+                logger.warning(
+                    f"Not creating sell order: Current price (${current_price:.2f}) is below "
+                    f"average purchase price (${avg_purchase_price:.2f})"
+                )
+                print(f"\n⚠️ Price not profitable for selling {product_id}:")
+                print(f"  Current price: ${current_price:.2f}")
+                print(f"  Avg purchase price: ${avg_purchase_price:.2f}")
+                print(f"  Price difference: ${current_price - avg_purchase_price:.2f}")
+                return None
+                
+            # Try to implement FIFO selling strategy - get the next buy order to match
+            try:
+                fifo_match = self.get_next_fifo_buy_order(product_id, current_price)
+                
+                if fifo_match:
+                    # We found a buy order to match
+                    size, buy_price, buy_date = fifo_match
+                    
+                    # Apply price percentage to the current price
+                    adjusted_price = current_price * price_percentage
+                    
+                    # Format price to 2 decimal places for USD
+                    formatted_price = "{:.2f}".format(adjusted_price)
+                    
+                    # Calculate profit percentage
+                    profit_pct = (adjusted_price / buy_price - 1) * 100
+                    
+                    print(f"\n📊 Creating FIFO-matched sell order for {product_id}:")
+                    print(f"  ● Matching buy order from {buy_date.strftime('%Y-%m-%d %H:%M:%S')}")
+                    print(f"  ● Order size: {size:.8f} {base_asset}")
+                    print(f"  ● Buy price: ${buy_price:.2f}")
+                    print(f"  ● Sell price: ${adjusted_price:.2f}")
+                    print(f"  ● Profit margin: {profit_pct:.2f}%")
+                    
+                    # Create order request
+                    order = OrderRequest(
+                        product_id=product_id,
+                        side='SELL',
+                        order_type='LIMIT',
+                        base_size=str(size),
+                        limit_price=formatted_price,
+                        time_in_force=time_in_force
+                    )
+                    return order
+                else:
+                    logger.info(f"No matching buy orders found for FIFO sell - falling back to standard approach")
+                    
+            except PriceNotProfitableError as e:
+                logger.info(f"FIFO sell strategy not applicable: {str(e)}")
+                # Fall through to standard approach
+                
+            # Fall back to standard sell strategy if FIFO approach fails
+            
             # For sell orders, try to get the last buy order
             last_buy_order = None
             last_buy_size = None
@@ -381,6 +661,12 @@ class OrderManager:
         print(f"  ● Limit price: ${limit_price:.2f} ({price_percentage*100:.0f}% of market price)")
         print(f"  ● Available balance: {available_balance:.8f} {base_asset if side == 'SELL' else quote_asset}")
         print(f"  ● {strategy_description}")
+        
+        # For SELL orders, also display profitability info
+        if side == 'SELL' and avg_purchase_price > 0:
+            profit_pct = (limit_price / avg_purchase_price - 1) * 100
+            print(f"  ● Avg purchase price: ${avg_purchase_price:.2f}")
+            print(f"  ● Profit margin: {profit_pct:.2f}%")
         
         # Create order request
         order = OrderRequest(

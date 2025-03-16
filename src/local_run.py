@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import time
+import argparse
 from bot_strategy.strategy import SwingStrategy
 from bot_strategy.trade_analyzer import TradeAnalysis
 from coinbase_api.client import CoinbaseAdvancedClient, OrderRequest
@@ -35,22 +36,31 @@ def load_local_secrets():
             "passphrase": "dummy_passphrase"
         }
 
+def parse_arguments():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(description='Cryptocurrency Trading Bot')
+    parser.add_argument('--verbose-calc', action='store_true', 
+                        help='Show detailed step-by-step indicator calculations')
+    parser.add_argument('--symbol', type=str, default='SOL-USD',
+                        help='Trading pair symbol (e.g., BTC-USD, ETH-USD)')
+    parser.add_argument('--timeframe', type=str, default=os.getenv('TIMEFRAME', 'THIRTY_MINUTE'),
+                        choices=[t.name for t in Timeframe], 
+                        help='Trading timeframe to use')
+    return parser.parse_args()
+
 def main():
     try:
+        # Parse command line arguments
+        args = parse_arguments()
+        
         trading_mode = os.getenv('TRADING_MODE', 'simulation')
-        # enum Timeframe(Enum):
-        #     ONE_MINUTE = 60
-        #     FIVE_MINUTE = 300
-        #     FIFTEEN_MINUTE = 900
-        #     THIRTY_MINUTE = 1800
-        #     ONE_HOUR = 3600
-        #     FOUR_HOURS = 14400
-        # timeframe = Timeframe(os.getenv('TIMEFRAME', 'FIVE_MINUTE'))
- 
-        # os.getenv('TIMEFRAME', default='FIVE_MINUTE') if not set
-        timeframe = Timeframe[os.getenv('TIMEFRAME', 'THIRTY_MINUTE')]
+        # Use timeframe from command line args or environment variable
+        timeframe = Timeframe[args.timeframe]
+        symbol = args.symbol
+        
         logger.info(f"Starting trading bot in {trading_mode} mode")
         logger.info(f"Using {timeframe.value} timeframe ({timeframe.minutes} minutes)")
+        logger.info(f"Trading pair: {symbol}")
         
         # Log the order placement cooldown periods
         secrets = load_local_secrets()
@@ -65,6 +75,13 @@ def main():
         
         # Initialize strategy
         strategy = SwingStrategy(timeframe=timeframe)
+        
+        # Enable detailed calculations if requested
+        # if args.verbose_calc:
+        if True:
+            strategy.set_verbose_calculations(True)
+            logger.info("Detailed calculation mode: ENABLED - Will show step-by-step indicator calculations")
+        
         logger.info("Strategy initialized successfully")
         
         # Initialize order manager
@@ -112,8 +129,6 @@ def main():
                 if is_boundary_time:
                     print(f"🔄 Checking at {timeframe.value} candle boundary time")
                 
-                # symbol = 'BTC-USD'
-                symbol = 'SOL-USD'
                 print("\n" + "="*50, flush=True)
                 print(f"📊 Fetching market data for {symbol}...", flush=True)
                 
@@ -142,6 +157,15 @@ def main():
                     prices = [float(candle.close) for candle in candles]
                     timestamps = [int(candle.start) for candle in candles]
                     
+                    # Get real-time price from API (separate from historical candles)
+                    current_price = None
+                    try:
+                        current_price = client.get_product_price(symbol)
+                        print(f"📊 Real-time price: ${current_price:.2f}")
+                    except Exception as e:
+                        logger.warning(f"Could not get real-time price: {str(e)}")
+                        # Will fall back to candle data in the strategy
+                    
                     # Print price information
                     print(f"📈 Latest price: ${prices[-1]:,.2f}", flush=True)
                     print(f"\n💹 Price Range:")
@@ -154,12 +178,26 @@ def main():
 
                     # Generate trading signal
                     print("\n🤖 Analyzing market conditions...")
-                    signal = strategy.generate_signal(symbol, prices, timestamps)
+                    # Pass the current price to strategy instead of the client
+                    signal = strategy.generate_signal(symbol, prices, timestamps, current_price)
                     
                     # Process the signal if it exists
                     if signal:
                     # if True:
                         print(f"\n🔔 Got trading signal: {signal.action} {signal.symbol} at ${signal.price:.2f}")
+                        
+                        # Display additional signal information if available
+                        if hasattr(signal, 'confidence') and signal.confidence > 0:
+                            print(f"📊 Signal confidence: {signal.confidence:.2f} (scale 0-1)")
+                        
+                        # Display indicator details if available
+                        if hasattr(signal, 'indicators') and signal.indicators:
+                            if 'rsi' in signal.indicators:
+                                rsi_data = signal.indicators['rsi']
+                                print(f"  RSI: {rsi_data['value']:.2f} (thresholds: {rsi_data['oversold']}/{rsi_data['overbought']})")
+                            if 'ema' in signal.indicators:
+                                ema_data = signal.indicators['ema']
+                                print(f"  EMA: ${ema_data['value']:.2f} (price distance: {ema_data['distance_pct']:.2f}%)")
                         
                         try:
                             if trading_mode == 'simulation':
@@ -175,7 +213,7 @@ def main():
                                     balance_fraction = 0.05  # Use 5% of available balance
                                     # investment = balance_fraction * 10
                                     investment = 10
-                                    price_percentage = 0.995 # 95% of current price for buy limit order
+                                    price_percentage = 0.998 # 95% of current price for buy limit order
                                     entry_price = signal.price * price_percentage
                                     analyzer = TradeAnalysis(
                                         investment=investment,
@@ -222,12 +260,13 @@ def main():
                                     print(f"\n🔶 Creating limit sell order for {trading_pair} based on trading signal...")
                                     
                                     try:
-                                        # Create a sell order using the existing create_smart_limit_order method
+                                        # Create a sell order using the enhanced smart limit order method
+                                        # which now implements one-at-a-time FIFO matching
                                         order = order_manager.create_smart_limit_order(
                                             product_id=trading_pair,
                                             side='SELL',
-                                            price_percentage=1.005,  # 105% of current price for sell limit order
-                                            balance_fraction=1.0    # Use 100% of available balance or last buy
+                                            price_percentage=1.002,  # 100.5% of current price for sell limit order
+                                            balance_fraction=1.0    # Use full size of matched buy order or available balance
                                         )
                                         
                                         if order:  # Only proceed if an order was created
@@ -237,7 +276,7 @@ def main():
                                             # Log the response for debugging
                                             print(f"SELL Response from place_order: {response}")
                                             # Check the response based on its type
-                                            if response and response['success']:
+                                            if response and response.get('success', False):
                                                 order_id = response['success_response']['order_id']
                                                 print(f"Limit sell order created: {order_id}")
                                             elif hasattr(response, 'order_id'):
@@ -245,7 +284,11 @@ def main():
                                             else:
                                                 logger.warning(f"❌ Order not placed: {response}")
                                         else:
-                                            logger.warning(f"❌ Could not create sell order: Insufficient balance")
+                                            # This could be due to:
+                                            # 1. Price not being profitable compared to average purchase price
+                                            # 2. No matching buy orders found in FIFO approach
+                                            # 3. Insufficient balance
+                                            logger.warning(f"❌ No sell order created for {trading_pair}")
                                     except OrderCooldownError as e:
                                         print(f"\n⏳ Order placement throttled: {str(e)}")
                                         print(f"This prevents overtrading and follows best practices for the {timeframe.value} timeframe")

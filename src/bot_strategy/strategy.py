@@ -1,10 +1,11 @@
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any
 import numpy as np
 import logging
 from .timeframes import Timeframe
 from datetime import datetime, timezone
 import pytz  # Add this import
+from .indicators import RSI, EMA
 
 logger = logging.getLogger(__name__)
 
@@ -18,24 +19,41 @@ class TradingSignal:
     action: str  # 'BUY' or 'SELL'
     price: float
     timeframe: Timeframe
+    confidence: float = 0.0  # 0.0 to 1.0
+    indicators: Dict[str, Any] = None
 
 class SwingStrategy:
     def __init__(self, 
                  timeframe: Timeframe = Timeframe.FIVE_MINUTE,
-                 rsi_period: int = 14):
+                 rsi_period: int = 14,
+                 ema_period: int = 20):
         """Initialize strategy with timeframe-specific parameters
         
         Args:
             timeframe: Trading timeframe (default: 5 minutes)
             rsi_period: RSI period (default: 14)
+            ema_period: EMA period (default: 20)
         """
         self.timeframe = timeframe
-        self.rsi_period = rsi_period
         
-        # Adjust thresholds based on timeframe
-        self.oversold, self.overbought = self._get_rsi_thresholds()
-        logger.info(f"Initialized {timeframe.value} strategy: "
-                   f"RSI({rsi_period}) thresholds: {self.oversold}/{self.overbought}")
+        # Initialize indicators
+        self.rsi = RSI(period=rsi_period, timeframe=timeframe)
+        self.ema = EMA(period=ema_period)
+        
+        logger.info(f"Initialized {timeframe.value} strategy with: "
+                   f"RSI({rsi_period}), EMA({ema_period})")
+    
+    def set_verbose_calculations(self, verbose: bool = True):
+        """
+        Enable or disable detailed calculation logs for indicators.
+        
+        Args:
+            verbose: True to show step-by-step calculations, False to hide
+        """
+        from .indicators.indicator_base import IndicatorBase
+        IndicatorBase.set_verbose_mode(verbose)
+        logger.info(f"Detailed indicator calculations: {'ENABLED' if verbose else 'DISABLED'}")
+        return self
     
     def _ensure_chronological_order(self, prices: List[float], timestamps: Optional[List[int]] = None) -> List[float]:
         """
@@ -68,112 +86,163 @@ class SwingStrategy:
             
         return chronological_prices
     
-    def _get_rsi_thresholds(self) -> Tuple[float, float]:
-        """Get RSI thresholds (oversold, overbought) based on timeframe"""
-        # Different thresholds based on timeframe
-        thresholds = {
-            Timeframe.ONE_MINUTE: (20, 80),   # Most extreme for very short timeframes
-            Timeframe.FIVE_MINUTE: (25, 75),  # More extreme for short timeframes
-            Timeframe.FIFTEEN_MINUTE: (25, 75), # More extreme for short timeframes
-            Timeframe.THIRTY_MINUTE: (30, 70), # Standard for medium timeframes
-            Timeframe.ONE_HOUR: (30, 70),     # Standard
-            Timeframe.TWO_HOUR: (35, 65),     # Less extreme
-            Timeframe.SIX_HOUR: (35, 65),     # Less extreme for longer timeframes
-            Timeframe.ONE_DAY: (40, 60)       # Least extreme for daily
-        }
-        return thresholds[self.timeframe]
-    
-    def calculate_rsi(self, prices: List[float], timestamps: Optional[List[int]] = None) -> float:
-        """
-        Calculate RSI using standard formula
+    def generate_signal(self, symbol: str, prices: List[float], timestamps: List[int], current_price: Optional[float] = None) -> Optional[TradingSignal]:
+        """Generate trading signal by combining momentum and trend indicators
         
         Args:
-            prices: List of price values
-            timestamps: Optional list of corresponding timestamps for accurate ordering
-            
-        Returns:
-            RSI value (0-100)
+            symbol: Trading pair symbol
+            prices: List of historical prices
+            timestamps: List of corresponding timestamps
+            current_price: Optional real-time price from exchange
         """
-        if len(prices) < self.rsi_period + 1:
-            logger.warning(f"Not enough data for {self.timeframe.value} RSI calculation")
-            return 50
-        
-        # Make sure prices are in chronological order (oldest first)
-        chronological_prices = self._ensure_chronological_order(prices, timestamps)
-        
-        # Calculate price changes (next - current)
-        deltas = np.diff(chronological_prices)
-        
-        # Separate gains and losses
-        gains = np.where(deltas > 0, deltas, 0)
-        losses = np.where(deltas < 0, -deltas, 0)
-        
-        # Calculate average gain and loss
-        avg_gain = np.mean(gains[-self.rsi_period:])  # Include zeros
-        avg_loss = np.mean(losses[-self.rsi_period:]) # Include zeros
-        
-        if avg_loss == 0:
-            return 100
-        
-        # Calculate RS and RSI
-        rs = avg_gain / avg_loss
-        rsi = 100 - (100 / (1 + rs))
-        
-        logger.debug(f"{self.timeframe.value} RSI: {rsi:.2f}")
-        return rsi
-
-    def generate_signal(self, symbol: str, prices: List[float], timestamps: List[int]) -> Optional[TradingSignal]:
-        """Generate trading signal with timeframe-specific logic"""
         if len(prices) < self.timeframe.lookback_periods:
             logger.warning(f"Insufficient data for {self.timeframe.value} analysis")
             return None
             
         # Print candle analysis before generating signal
-        self.print_candle_analysis(prices, timestamps)
+        self.print_candle_analysis(prices, timestamps, symbol, current_price)
         
         # Log price data direction for debugging
         is_reversed = len(prices) > 1 and prices[0] > prices[-1]
         price_order = "newest first (reversed)" if is_reversed else "oldest first (chronological)"
         logger.info(f"Prices appear to be in {price_order} order. First price: {prices[0]}, Last price: {prices[-1]}")
         
-        # Calculate RSI using timestamps for proper ordering
-        rsi = self.calculate_rsi(prices, timestamps)
+        # Get signals from each indicator
+        # Set show_calculations to False for the second call to prevent duplicating the RSI calculation display
+        rsi_signal = self.rsi.get_signal(prices, timestamps, show_calculations=False)
+        ema_signal = self.ema.get_signal(prices, timestamps)
         
         # Get the current price (most recent)
-        # Find the index of the most recent timestamp
-        if timestamps and len(timestamps) > 0:
-            most_recent_idx = timestamps.index(max(timestamps))
-            current_price = prices[most_recent_idx]
+        # If real-time price is provided, use it
+        if current_price is not None:
+            logger.info(f"Using real-time market price: ${current_price:.2f}")
         else:
-            current_price = prices[0] if is_reversed else prices[-1]
+            # Extract from candle data
+            if timestamps and len(timestamps) > 0:
+                most_recent_idx = timestamps.index(max(timestamps))
+                current_price = prices[most_recent_idx]
+            else:
+                current_price = prices[0] if is_reversed else prices[-1]
+            logger.info(f"Using candle price: ${current_price:.2f}")
         
-        # Log details about the RSI calculation
-        logger.info(f"{self.timeframe.value} RSI calculation result: {rsi:.2f}, using {self.rsi_period} periods")
-        logger.info(f"Current price: ${current_price:.2f}")
+        # Log indicator values
+        logger.info(f"{self.timeframe.value} RSI: {rsi_signal['value']:.2f}, "
+                   f"EMA({self.ema.period}): {ema_signal['value']:.2f}, "
+                   f"Current price: ${current_price:.2f}")
         
-        if rsi < self.oversold:
-            logger.info(f"{self.timeframe.value} RSI({rsi:.2f}) below {self.oversold} - Generating BUY signal")
+        # Combine indicators to generate a trading signal
+        signal, confidence = self._combine_signals(rsi_signal, ema_signal)
+        
+        if signal != 'NEUTRAL':
+            logger.info(f"{self.timeframe.value} Combined signal: {signal} with {confidence:.2f} confidence")
             return TradingSignal(
                 symbol=symbol,
-                action='BUY',
+                action=signal,
                 price=current_price,
-                timeframe=self.timeframe
-            )
-        elif rsi > self.overbought:
-            logger.info(f"{self.timeframe.value} RSI({rsi:.2f}) above {self.overbought} - Generating SELL signal")
-            return TradingSignal(
-                symbol=symbol,
-                action='SELL',
-                price=current_price,
-                timeframe=self.timeframe
+                timeframe=self.timeframe,
+                confidence=confidence,
+                indicators={'rsi': rsi_signal, 'ema': ema_signal}
             )
         else:
-            logger.info(f"{self.timeframe.value} RSI({rsi:.2f}) between thresholds {self.oversold}-{self.overbought} - No signal")
+            logger.info(f"{self.timeframe.value} No actionable signal (confidence: {confidence:.2f})")
         
         return None
+    
+    def _combine_signals(self, rsi_signal: Dict[str, Any], ema_signal: Dict[str, Any]) -> Tuple[str, float]:
+        """
+        Combine RSI and EMA signals to generate a trading decision.
+        
+        Args:
+            rsi_signal: Signal dictionary from RSI indicator
+            ema_signal: Signal dictionary from EMA indicator
+            
+        Returns:
+            Tuple of (signal, confidence)
+            - signal: 'BUY', 'SELL', or 'NEUTRAL'
+            - confidence: A value between 0.0 and 1.0 indicating confidence level
+        """
+        rsi_action = rsi_signal['signal']
+        ema_action = ema_signal['signal']
+        rsi_value = rsi_signal['value']
+        
+        # Normalize indicator strengths to 0-1 range
+        rsi_strength = rsi_signal['strength'] / 100
+        ema_strength = ema_signal['strength'] / 100
+        
+        # Calculate base confidence levels
+        # Give RSI 70% weight (was 60%) and EMA 30% weight (was 40%)
+        rsi_confidence = rsi_strength * 0.7  # RSI contributes 70%
+        ema_confidence = ema_strength * 0.3  # EMA contributes 30%
+        
+        # Calculate EMA slope from distance percentage
+        ema_distance = ema_signal['distance_pct']
+        
+        # Default to NEUTRAL
+        combined_signal = 'NEUTRAL'
+        confidence = 0.0
+        
+        # Strategy 1: Strong agreement between indicators
+        if rsi_action == ema_action and rsi_action != 'NEUTRAL':
+            combined_signal = rsi_action
+            # Both indicators agree, so we have high confidence
+            confidence = (rsi_confidence + ema_confidence) * 1.2  # Bonus for agreement
+            logger.info(f"Strong agreement: RSI and EMA both suggest {combined_signal}")
+            
+        # Strategy 2: RSI extremes with confirming trend
+        # More sensitive to early trend reversal - allow up to -2.5% (was -2%)
+        elif rsi_action == 'BUY' and ema_signal['distance_pct'] > -2.5:
+            # RSI suggests buy and price is close to or approaching EMA (early trend reversal)
+            combined_signal = 'BUY'
+            
+            # Special case: Deeply oversold RSI (below 20) - higher confidence even with price below EMA
+            if rsi_value < 20:
+                # Deep oversold is a stronger signal, increase confidence
+                confidence = rsi_confidence * (1 + 0.5 * (1 + ema_confidence))
+                logger.info(f"Deep RSI oversold ({rsi_value:.2f}) indicates potential reversal (price to EMA: {ema_signal['distance_pct']:.2f}%)")
+            else:
+                # Regular oversold case - adjust formula to give more weight to RSI
+                confidence = rsi_confidence * (1 + 0.4 * ema_confidence)
+                logger.info(f"RSI oversold in neutral/bullish trend (price to EMA: {ema_signal['distance_pct']:.2f}%)")
+            
+            # Add a boost for prices getting closer to EMA (potential early reversal)
+            if ema_signal['distance_pct'] > -1:
+                confidence *= 1.15  # 15% confidence boost when price is very close to EMA
+                logger.info(f"Price approaching EMA - potential trend reversal signal")
+            
+        elif rsi_action == 'SELL' and ema_signal['distance_pct'] < 2:
+            # RSI suggests sell and price is close to or below EMA (confirming downtrend)
+            combined_signal = 'SELL'
+            confidence = rsi_confidence * (1 + 0.3 * ema_confidence)
+            logger.info(f"RSI overbought in neutral/bearish trend (price to EMA: {ema_signal['distance_pct']:.2f}%)")
+            
+        # Strategy 3: EMA crossover with confirming RSI
+        elif ema_action != 'NEUTRAL' and rsi_signal['value'] > 40 and rsi_signal['value'] < 60:
+            # EMA crossover with RSI in neutral zone (avoiding extremes)
+            combined_signal = ema_action
+            confidence = ema_confidence * (1 + 0.2 * (1 - abs(rsi_signal['value'] - 50) / 10))
+            logger.info(f"EMA {ema_action} crossover with neutral RSI ({rsi_signal['value']:.2f})")
+        
+        # Cap confidence at 1.0
+        confidence = min(1.0, confidence)
+        
+        # Require minimum confidence threshold
+        # Lower threshold for BUY signals to 0.30 (was 0.35)
+        min_confidence = 0.30 if combined_signal == 'BUY' else 0.35
+        if confidence < min_confidence:
+            logger.info(f"Signal {combined_signal} has low confidence ({confidence:.2f}), changing to NEUTRAL")
+            return 'NEUTRAL', confidence
+            
+        return combined_signal, confidence
 
-    def print_candle_analysis(self, prices: List[float], timestamps: List[int]) -> None:
-        """Print detailed candle analysis and RSI calculation"""
+    def print_candle_analysis(self, prices: List[float], timestamps: List[int], symbol: Optional[str] = None, current_price: Optional[float] = None) -> None:
+        """Print detailed candle analysis and RSI calculation
+        
+        Args:
+            prices: List of price values
+            timestamps: List of corresponding timestamps
+            symbol: Optional trading pair symbol (for display purposes)
+            current_price: Optional real-time price from external source
+        """
         if not prices or not timestamps or len(prices) != len(timestamps):
             logger.error("Invalid price or timestamp data")
             return
@@ -247,7 +316,6 @@ class SwingStrategy:
         first_shown_time = datetime.fromtimestamp(first_shown_timestamp, tz=utc_tz).astimezone(est_tz)
         last_shown_time = datetime.fromtimestamp(last_shown_timestamp, tz=utc_tz).astimezone(est_tz)
         
-        # Display time range from oldest to newest that we're showing
         print(f"Showing {periods_to_show} most recent candles from {last_shown_time.strftime('%H:%M')} to {first_shown_time.strftime('%H:%M')} {tz_abbr}")
         
         # Print the candles
@@ -281,78 +349,66 @@ class SwingStrategy:
             except IndexError as e:
                 logger.error(f"Index error at position {i}: {str(e)}")
                 break
-                
-        # Add back the RSI calculation
-        # Create chronological prices (oldest first) for RSI calculation
+        
+        # Add indicator analysis section
+        print("\n📊 Indicator Analysis:")
+        
+        # Calculate both indicators
+        rsi_value = self.rsi.calculate(prices, timestamps)
+        ema_value = self.ema.calculate(prices, timestamps)
+        
+        # Create chronological prices (oldest first) for additional analysis
         chronological_prices = list(reversed(display_prices.copy()))
         chronological_timestamps = list(reversed(display_timestamps.copy()))
         
-        # Calculate deltas in chronological order for RSI
-        rsi_deltas = np.diff(chronological_prices)
+        # Get prices and EMAs for the last few periods to show trend
+        ema_series = self.ema.calculate_multiple(chronological_prices, chronological_timestamps)
         
-        # Separate gains and losses for RSI calculation
-        calc_gains = np.where(rsi_deltas > 0, rsi_deltas, 0)
-        calc_losses = np.where(rsi_deltas < 0, -rsi_deltas, 0)
+        # Display only the last 5 EMA values and corresponding prices
+        print("\nPrice vs EMA Trend:")
+        for i in range(min(5, len(ema_series))):
+            if i >= len(chronological_prices) - 5:
+                idx = len(chronological_prices) - (len(chronological_prices) - i)
+                if idx < len(chronological_prices) and not np.isnan(ema_series[idx]):
+                    ts_idx = idx if idx < len(chronological_timestamps) else -1
+                    dt = datetime.fromtimestamp(chronological_timestamps[ts_idx], tz=utc_tz).astimezone(est_tz)
+                    time_str = dt.strftime("%H:%M")
+                    print(f"{time_str}: Price ${chronological_prices[idx]:.2f} | EMA ${ema_series[idx]:.2f} | "
+                          f"Diff: {(chronological_prices[idx] - ema_series[idx]):.2f} "
+                          f"({(chronological_prices[idx] / ema_series[idx] - 1) * 100:.2f}%)")
         
-        # Get the actual gain/loss values used in the RSI calculation
-        rsi_gains_used = calc_gains[-self.rsi_period:].tolist()
-        rsi_losses_used = calc_losses[-self.rsi_period:].tolist()
-        
-        # Filter out zeros to get only the actual gains and losses
-        non_zero_gains = [g for g in rsi_gains_used if g > 0]
-        non_zero_losses = [l for l in rsi_losses_used if l > 0]
-        
-        # Format the gain/loss values for display - only show non-zero values
-        # If the string becomes too long, truncate it
-        if len(non_zero_gains) > 5:
-            gain_values_str = " + ".join([f"${g:.2f}" for g in non_zero_gains[:5]]) + f" + ... ({len(non_zero_gains)-5} more)"
+        # If current_price is provided, use it (from real-time API)
+        # Otherwise, extract from candle data
+        if current_price is not None:
+            print(f"\n🔄 Real-time market price: ${current_price:.2f}")
         else:
-            gain_values_str = " + ".join([f"${g:.2f}" for g in non_zero_gains]) if non_zero_gains else "$0"
+            # Extract current price from candle data
+            if timestamps and len(timestamps) > 0:
+                most_recent_idx = timestamps.index(max(timestamps))
+                current_price = prices[most_recent_idx]
+            else:
+                is_reversed = len(prices) > 1 and prices[0] > prices[-1]
+                current_price = prices[0] if is_reversed else prices[-1]
+            print(f"\n📊 Using candle data price: ${current_price:.2f}")
         
-        if len(non_zero_losses) > 5:
-            loss_values_str = " + ".join([f"${l:.2f}" for l in non_zero_losses[:5]]) + f" + ... ({len(non_zero_losses)-5} more)"
-        else:
-            loss_values_str = " + ".join([f"${l:.2f}" for l in non_zero_losses]) if non_zero_losses else "$0"
+        # Show RSI details
+        print(f"\nRSI({self.rsi.period}): {rsi_value:.2f}")
+        print(f"RSI Thresholds: Oversold < {self.rsi.oversold} | Overbought > {self.rsi.overbought}")
         
-        # Calculate average gain and loss
-        avg_gain = np.mean(calc_gains[-self.rsi_period:])  # Include zeros
-        avg_loss = np.mean(calc_losses[-self.rsi_period:]) # Include zeros
-        rs = avg_gain / avg_loss if avg_loss != 0 else float('inf')
-        rsi = 100 - (100 / (1 + rs)) if avg_loss != 0 else 100
+        # Show EMA details
+        print(f"\nEMA({self.ema.period}): {ema_value:.2f}")
+        print(f"Current Price to EMA: {(current_price / ema_value - 1) * 100:.2f}%")
         
-        # Count non-zero gains and losses for better understanding
-        non_zero_gain_count = len(non_zero_gains)
-        non_zero_loss_count = len(non_zero_losses)
-        
-        # Find the time range of candles used for RSI calculation
-        rsi_start_idx = max(0, len(chronological_timestamps) - self.rsi_period)
-        rsi_end_idx = len(chronological_timestamps) - 1
-        
-        # Convert RSI candle timestamps to datetime for display
-        if rsi_start_idx < len(chronological_timestamps) and rsi_end_idx < len(chronological_timestamps):
-            rsi_start_time = datetime.fromtimestamp(chronological_timestamps[rsi_start_idx], tz=utc_tz).astimezone(est_tz)
-            rsi_end_time = datetime.fromtimestamp(chronological_timestamps[rsi_end_idx], tz=utc_tz).astimezone(est_tz)
-            
-            print("\n📊 RSI Calculation:")
-            print(f"Using {self.rsi_period} periods from {rsi_start_time.strftime('%H:%M')} to {rsi_end_time.strftime('%H:%M')} {tz_abbr}")
-            
-            # Display the gain/loss values used in calculation
-            print(f"Gains in period ({non_zero_gain_count}/{self.rsi_period} candles): {gain_values_str}")
-            print(f"Losses in period ({non_zero_loss_count}/{self.rsi_period} candles): {loss_values_str}")
-            
-            # Show the full calculation with concrete values
-            # Use the same gain_values_str and loss_values_str from above
-            print(f"Average Gain ({gain_values_str}) / {self.rsi_period}: ${avg_gain:.2f}")
-            print(f"Average Loss ({loss_values_str}) / {self.rsi_period}: ${avg_loss:.2f}")
-            print(f"Relative Strength (RS) = Avg Gain / Avg Loss = {rs:.2f}")
-            print(f"RSI = 100 - (100 / (1 + RS)) = {rsi:.2f}")
-            
-            # Verify the RSI matches with the calculate_rsi method
-            verify_rsi = self.calculate_rsi(prices, timestamps)
-            logger.info(f"RSI Verification - Printed: {rsi:.2f}, calculate_rsi method: {verify_rsi:.2f}")
-        else:
-            print("\n❌ Not enough data for RSI calculation")
-
+        # Show cross-indicator analysis
+        if rsi_value < self.rsi.oversold and current_price > ema_value:
+            print("\n🔔 SIGNAL: RSI oversold while price above EMA - Potential bullish setup")
+        elif rsi_value > self.rsi.overbought and current_price < ema_value:
+            print("\n🔔 SIGNAL: RSI overbought while price below EMA - Potential bearish setup")
+        elif rsi_value < self.rsi.oversold and current_price < ema_value:
+            print("\n⚠️ MIXED: RSI oversold but price below EMA - Conflicting signals")
+        elif rsi_value > self.rsi.overbought and current_price > ema_value:
+            print("\n⚠️ MIXED: RSI overbought but price above EMA - Conflicting signals")
+    
     def analyze_rsi_swings(self, prices: List[float], timestamps: List[int]) -> dict:
         """Analyze RSI swings from oversold to overbought conditions
         
@@ -371,10 +427,10 @@ class SwingStrategy:
         """
         # Calculate RSI for each period
         rsi_values = []
-        for i in range(self.rsi_period, len(prices)):
-            window_prices = prices[i-self.rsi_period:i+1]
-            window_timestamps = timestamps[i-self.rsi_period:i+1] if timestamps else None
-            rsi = self.calculate_rsi(window_prices, window_timestamps)
+        for i in range(self.rsi.period, len(prices)):
+            window_prices = prices[i-self.rsi.period:i+1]
+            window_timestamps = timestamps[i-self.rsi.period:i+1] if timestamps else None
+            rsi = self.rsi.calculate(window_prices, window_timestamps)
             rsi_values.append(rsi)
         
         # Find completed oversold to overbought swings
@@ -384,13 +440,13 @@ class SwingStrategy:
         swing_start_time = 0
         
         for i in range(len(rsi_values)-1):
-            if not in_swing and rsi_values[i] < self.oversold:
+            if not in_swing and rsi_values[i] < self.rsi.oversold:
                 in_swing = True
-                swing_start_price = prices[i+self.rsi_period]
-                swing_start_time = timestamps[i+self.rsi_period]
-            elif in_swing and rsi_values[i] > self.overbought:
-                swing_end_price = prices[i+self.rsi_period]
-                swing_end_time = timestamps[i+self.rsi_period]
+                swing_start_price = prices[i+self.rsi.period]
+                swing_start_time = timestamps[i+self.rsi.period]
+            elif in_swing and rsi_values[i] > self.rsi.overbought:
+                swing_end_price = prices[i+self.rsi.period]
+                swing_end_time = timestamps[i+self.rsi.period]
                 swing_pct = (swing_end_price - swing_start_price) / swing_start_price
                 swings.append({
                     'start_price': swing_start_price,

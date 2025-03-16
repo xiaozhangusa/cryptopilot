@@ -38,9 +38,19 @@ def lambda_handler(event, context):
         symbol = 'BTC-USD'
         candles = coinbase_client.get_product_candles(symbol)
         prices = [float(candle[4]) for candle in candles]  # Close prices
+        timestamps = [int(candle[0]) for candle in candles]  # Add timestamps
+        
+        # Get current price
+        current_price = None
+        try:
+            current_price = coinbase_client.get_product_price(symbol)
+            logger.info(f"Current price: ${current_price:.2f}")
+        except Exception as e:
+            logger.warning(f"Could not get real-time price: {str(e)}")
+            # Will fall back to candle data
         
         # Generate trading signal
-        signal = strategy.generate_signal(symbol, prices)
+        signal = strategy.generate_signal(symbol, prices, timestamps, current_price)
         
         if signal:
             logger.info(f"Generated signal: {signal}")

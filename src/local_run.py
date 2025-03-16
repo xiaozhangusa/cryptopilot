@@ -8,7 +8,7 @@ from coinbase_api.client import CoinbaseAdvancedClient, OrderRequest
 import sys
 from bot_strategy.timeframes import Timeframe
 from utils.chart import print_price_chart
-from trading.order_manager import OrderManager
+from trading.order_manager import OrderManager, OrderCooldownError
 from decimal import Decimal
 from datetime import datetime, timedelta
 
@@ -52,6 +52,7 @@ def main():
         logger.info(f"Starting trading bot in {trading_mode} mode")
         logger.info(f"Using {timeframe.value} timeframe ({timeframe.minutes} minutes)")
         
+        # Log the order placement cooldown periods
         secrets = load_local_secrets()
         logger.info(f"Secrets loaded successfully")
         client = CoinbaseAdvancedClient(
@@ -68,6 +69,11 @@ def main():
         
         # Initialize order manager
         order_manager = OrderManager(client)
+        
+        # Log cooldown periods for reference
+        buy_cooldown = order_manager.get_order_cooldown_period(timeframe, 'BUY')
+        sell_cooldown = order_manager.get_order_cooldown_period(timeframe, 'SELL')
+        logger.info(f"Order cooldown periods: BUY: {buy_cooldown//60} minutes, SELL: {sell_cooldown//60} minutes")
 
         # Loop forever
         while True:
@@ -156,7 +162,6 @@ def main():
                         print(f"\n🔔 Got trading signal: {signal.action} {signal.symbol} at ${signal.price:.2f}")
                         
                         try:
-                            
                             if trading_mode == 'simulation':
                                 print(f"\n🔸 SIMULATION MODE:")
                                 
@@ -168,8 +173,9 @@ def main():
                                 if trading_action == 'BUY':
                                     # Analyze trade potential
                                     balance_fraction = 0.05  # Use 5% of available balance
-                                    investment = balance_fraction * 0.1 
-                                    price_percentage = 0.99 # 95% of current price for buy limit order
+                                    # investment = balance_fraction * 10
+                                    investment = 10
+                                    price_percentage = 0.995 # 95% of current price for buy limit order
                                     entry_price = signal.price * price_percentage
                                     analyzer = TradeAnalysis(
                                         investment=investment,
@@ -194,16 +200,21 @@ def main():
                                         # Debug the order before placing
                                         logger.debug(f"ABOUT TO PLACE ORDER: {order.__dict__ if hasattr(order, '__dict__') else order}")
                                         
-                                        # Get the response
-                                        response = order_manager.place_order(order)
+                                        # Place the order with cooldown check
+                                        response = order_manager.place_order(order, timeframe=timeframe)
                                         
                                         # Log the response for debugging
                                         print(f"Response from place_order: {response}")
                                         if response and response['success']:
                                             order_id = response['success_response']['order_id']
                                             print(f"Limit buy order created: {order_id}")
+                                        elif hasattr(response, 'order_id'):
+                                            print(f"Limit buy order created: {response.order_id}")
                                         else:
                                             logger.warning(f"❌ Order not placed: {response}")
+                                    except OrderCooldownError as e:
+                                        print(f"\n⏳ Order placement throttled: {str(e)}")
+                                        print(f"This prevents overtrading and follows best practices for the {timeframe.value} timeframe")
                                     except Exception as e:
                                         logger.error(f"Error placing buy order: {str(e)}")
                                     
@@ -215,13 +226,13 @@ def main():
                                         order = order_manager.create_smart_limit_order(
                                             product_id=trading_pair,
                                             side='SELL',
-                                            price_percentage=1.05,  # 105% of current price for sell limit order
+                                            price_percentage=1.005,  # 105% of current price for sell limit order
                                             balance_fraction=1.0    # Use 100% of available balance or last buy
                                         )
                                         
                                         if order:  # Only proceed if an order was created
-                                            # Get the response
-                                            response = order_manager.place_order(order)
+                                            # Place the order with cooldown check
+                                            response = order_manager.place_order(order, timeframe=timeframe)
                                             
                                             # Log the response for debugging
                                             print(f"SELL Response from place_order: {response}")
@@ -229,10 +240,15 @@ def main():
                                             if response and response['success']:
                                                 order_id = response['success_response']['order_id']
                                                 print(f"Limit sell order created: {order_id}")
+                                            elif hasattr(response, 'order_id'):
+                                                print(f"Limit sell order created: {response.order_id}")
                                             else:
                                                 logger.warning(f"❌ Order not placed: {response}")
                                         else:
                                             logger.warning(f"❌ Could not create sell order: Insufficient balance")
+                                    except OrderCooldownError as e:
+                                        print(f"\n⏳ Order placement throttled: {str(e)}")
+                                        print(f"This prevents overtrading and follows best practices for the {timeframe.value} timeframe")
                                     except Exception as e:
                                         logger.error(f"Error placing sell order: {str(e)}")
                                 
@@ -245,8 +261,11 @@ def main():
                                         order_type='MARKET',
                                         quote_size='10'
                                     )
-                                    response = client.create_market_order(order)
+                                    response = client.create_market_order(order, timeframe=timeframe)
                                     logger.info(f"Order placed: {response}")
+                                except OrderCooldownError as e:
+                                    print(f"\n⏳ Order placement throttled: {str(e)}")
+                                    print(f"This prevents overtrading and follows best practices for the {timeframe.value} timeframe")
                                 except Exception as e:
                                     logger.error(f"Error placing market order: {str(e)}")
                         except Exception as e:
@@ -280,10 +299,12 @@ def main():
                     # Define check frequency based on timeframe size
                     # For shorter timeframes, check more often
                     if minutes_in_timeframe <= 15:  # 15 min or less
-                        standard_check_interval = min(60, seconds_in_timeframe // 5)  # At least 5 checks per timeframe
+                        # standard_check_interval = min(60, seconds_in_timeframe // 5)  # At least 5 checks per timeframe
+                        standard_check_interval = seconds_in_timeframe // 2
                         boundary_threshold = 60  # Check more frequently within 60 seconds of boundary
                     elif minutes_in_timeframe <= 60:  # Hour or less
-                        standard_check_interval = min(300, seconds_in_timeframe // 10)  # At least 10 checks per timeframe
+                        # standard_check_interval = min(300, seconds_in_timeframe // 10)  # At least 10 checks per timeframe
+                        standard_check_interval = seconds_in_timeframe // 2
                         boundary_threshold = 120  # Check more frequently within 2 minutes of boundary
                     else:  # Longer timeframes
                         standard_check_interval = min(900, seconds_in_timeframe // 20)  # At least 20 checks per timeframe

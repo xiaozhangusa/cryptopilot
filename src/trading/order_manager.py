@@ -1,11 +1,13 @@
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Dict, Tuple
 import logging
 from coinbase_api.client import CoinbaseAdvancedClient, OrderRequest, Account  # Import Account from our client
 import time
 from os import environ
 import uuid
 import os
+from datetime import datetime
+from bot_strategy.timeframes import Timeframe
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +15,10 @@ class InsufficientBalanceError(Exception):
     pass
 
 class OrderPlacementError(Exception):
+    pass
+
+class OrderCooldownError(Exception):
+    """Raised when an order is attempted during its cooldown period"""
     pass
 
 class BalanceManager:
@@ -184,6 +190,98 @@ class OrderManager:
         self.client = client
         self.balance_manager = BalanceManager(client)
         self.validator = OrderValidator(self.balance_manager)
+        
+        # Order cooldown tracking
+        self._last_order_times: Dict[Tuple[str, str], datetime] = {}  # (product_id, side) -> last_order_time
+
+    def get_order_cooldown_period(self, timeframe: Timeframe, order_side: str) -> int:
+        """
+        Calculate the cooldown period between order placements based on timeframe.
+        Industry practice typically suggests waiting at least 1-3 candles between trades.
+        
+        Args:
+            timeframe: The trading timeframe
+            order_side: 'BUY' or 'SELL' - we allow shorter cooldowns for exits (SELL)
+            
+        Returns:
+            Cooldown period in seconds
+        """
+        # Minutes in each timeframe
+        minutes = timeframe.minutes
+        
+        # Default to 2-3 candle periods for BUY orders (entries)
+        if order_side == 'BUY':
+            # For smaller timeframes, wait longer in terms of candle count
+            # For larger timeframes, wait fewer candles (but still longer in absolute time)
+            if minutes <= 5:  # 1min or 5min
+                return minutes * 60 * 3  # Wait 3 candles
+            elif minutes <= 30:  # 15min or 30min
+                return minutes * 60 * 2  # Wait 2 candles
+            else:  # 1h and above
+                return minutes * 60 * 1.5  # Wait 1.5 candles
+        else:  # SELL orders (exits) - allow shorter cooldowns
+            # For exits, we generally want to be more responsive, so shorter cooldowns
+            if minutes <= 5:  # 1min or 5min
+                return minutes * 60 * 1.5  # Wait 1.5 candles
+            elif minutes <= 30:  # 15min or 30min
+                return minutes * 60 * 1  # Wait 1 candle
+            else:  # 1h and above
+                return minutes * 60 * 0.75  # Wait 0.75 candles
+                
+    def can_place_order(self, product_id: str, side: str, timeframe: Timeframe, bypass_cooldown: bool = False) -> bool:
+        """
+        Determine if enough time has elapsed since the last order placement to allow a new order.
+        
+        Args:
+            product_id: The trading pair (e.g. 'BTC-USD')
+            side: 'BUY' or 'SELL'
+            timeframe: Current trading timeframe
+            bypass_cooldown: If True, skip the cooldown check (for manual orders or other special cases)
+            
+        Returns:
+            True if order can be placed, False if still in cooldown
+        """
+        if bypass_cooldown:
+            return True
+            
+        order_key = (product_id, side)
+        last_order_time = self._last_order_times.get(order_key)
+        
+        # If no previous order for this product and side, allow placing
+        if not last_order_time:
+            return True
+            
+        # Calculate cooldown period based on timeframe and order side
+        cooldown_period = self.get_order_cooldown_period(timeframe, side)
+        
+        # Check if enough time has elapsed
+        current_time = datetime.now()
+        time_elapsed = (current_time - last_order_time).total_seconds()
+        can_place = time_elapsed >= cooldown_period
+        
+        # If still in cooldown, log details about remaining wait time
+        if not can_place:
+            remaining_time = cooldown_period - time_elapsed
+            remaining_minutes = int(remaining_time // 60)
+            remaining_seconds = int(remaining_time % 60)
+            logger.info(f"⏳ Order cooldown active for {product_id} {side} orders - {remaining_minutes}m {remaining_seconds}s remaining")
+            logger.info(f"Last {side} order placed at {last_order_time.strftime('%H:%M:%S')}, " 
+                      f"cooldown period: {cooldown_period//60} minutes")
+        
+        return can_place
+        
+    def update_last_order_time(self, product_id: str, side: str):
+        """
+        Update the last order time for the specified product and side.
+        
+        Args:
+            product_id: The trading pair (e.g. 'BTC-USD')
+            side: 'BUY' or 'SELL'
+        """
+        order_key = (product_id, side)
+        current_time = datetime.now()
+        self._last_order_times[order_key] = current_time
+        logger.info(f"✅ Updated last {product_id} {side} order time to {current_time.strftime('%H:%M:%S')}")
 
     def create_smart_limit_order(self, 
                              product_id: str, 
@@ -296,15 +394,27 @@ class OrderManager:
         
         return order
         
-    def place_order(self, order: OrderRequest):
-        """Place an order using the client API
+    def place_order(self, order: OrderRequest, timeframe: Optional[Timeframe] = None, bypass_cooldown: bool = False):
+        """Place an order using the client API, with cooldown checks
 
         Args:
             order: Order request parameters
+            timeframe: Current trading timeframe (needed for cooldown checks)
+            bypass_cooldown: If True, skip the cooldown check
 
         Returns:
             The response from the API
+            
+        Raises:
+            OrderCooldownError: If the order is attempted during its cooldown period
+            InsufficientBalanceError: If there isn't enough balance
+            OrderPlacementError: For other errors during order placement
         """
+        # Check for cooldown if timeframe is provided
+        if timeframe and not bypass_cooldown:
+            if not self.can_place_order(order.product_id, order.side, timeframe):
+                raise OrderCooldownError(f"Order cooldown active for {order.product_id} {order.side}")
+        
         # Always validate balance regardless of mode
         trading_mode = os.environ.get('TRADING_MODE', 'simulation')
         logger.info(f"Validating balance for {order.product_id} order in {trading_mode} mode")
@@ -424,6 +534,17 @@ class OrderManager:
                     if 'error_response' in response:
                         logger.debug(f"ERROR_RESPONSE STRUCTURE: {response['error_response']}")
                 
+                # Check if the order was successful
+                order_successful = False
+                if isinstance(response, dict) and response.get('success'):
+                    order_successful = True
+                elif hasattr(response, 'order_id'):
+                    order_successful = True
+                
+                # Update the last order time if the order was successful
+                if order_successful:
+                    self.update_last_order_time(order.product_id, order.side)
+                
                 # Modify the response for simulation mode to make it easier to work with
                 if trading_mode.lower() == 'simulation' and isinstance(response, dict) and response.get('success'):
                     # Create a simpler response object with just the order_id
@@ -453,7 +574,14 @@ class OrderManager:
                 # Add debug for non-simulation or unsuccessful response
                 logger.debug(f"Returning original response: simulation_mode={trading_mode.lower()=='simulation'}, success={response.get('success', False) if isinstance(response, dict) else 'N/A'}")
                 return response
-            return self.client.create_market_order(order)
+                
+            # For market orders
+            response = self.client.create_market_order(order)
+            
+            # Update the last order time if we got here (means the order was successful)
+            self.update_last_order_time(order.product_id, order.side)
+            
+            return response
             
         except InsufficientBalanceError as e:
             logger.warning(str(e))

@@ -9,6 +9,8 @@ ENVIRONMENT="simulation"
 VERBOSE=false
 DETACH=false
 REBUILD_BASE=false
+TARGET="all"  # Default to building all containers
+BUILD_ONLY=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -21,6 +23,10 @@ while [[ $# -gt 0 ]]; do
             ENVIRONMENT="$2"
             shift 2
             ;;
+        --target)
+            TARGET="$2"
+            shift 2
+            ;;
         -v|--verbose)
             VERBOSE=true
             shift
@@ -31,6 +37,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --rebuild-base)
             REBUILD_BASE=true
+            shift
+            ;;
+        --build-only)
+            BUILD_ONLY=true
             shift
             ;;
         *)
@@ -51,10 +61,17 @@ if [[ ! "$ENVIRONMENT" =~ ^(simulation|production)$ ]]; then
     exit 1
 fi
 
+if [[ ! "$TARGET" =~ ^(all|trading-bot|backtest)$ ]]; then
+    echo "Invalid target. Must be 'all', 'trading-bot', or 'backtest'"
+    exit 1
+fi
+
 # Execute Python deployment script
 python3 "$(dirname "$0")/deploy.py" \
     --mode "$MODE" \
     --env "$ENVIRONMENT" \
+    --target "$TARGET" \
     $([ "$VERBOSE" = true ] && echo "--verbose") \
     $([ "$DETACH" = true ] && echo "--detach") \
-    $([ "$REBUILD_BASE" = true ] && echo "--rebuild-base") 
+    $([ "$REBUILD_BASE" = true ] && echo "--rebuild-base") \
+    $([ "$BUILD_ONLY" = true ] && echo "--build-only") 

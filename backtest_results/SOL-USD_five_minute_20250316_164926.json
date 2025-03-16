@@ -1,0 +1,27 @@
+{
+  "original": {
+    "name": "Original Strategy",
+    "total_trades": 14,
+    "winning_trades": 11,
+    "win_rate": 78.57142857142857,
+    "profit_loss": 86.79630527173617,
+    "profit_loss_pct": 8.679630527173618,
+    "max_drawdown": 7.64164025341034,
+    "avg_trade_duration": 24.98809523809524,
+    "buy_and_hold_pct": -1.4152366417093942,
+    "final_capital": 1086.7963052717362
+  },
+  "adjusted": {
+    "name": "Adjusted Strategy",
+    "total_trades": 14,
+    "winning_trades": 11,
+    "win_rate": 78.57142857142857,
+    "profit_loss": 86.79630527173617,
+    "profit_loss_pct": 8.679630527173618,
+    "max_drawdown": 7.64164025341034,
+    "avg_trade_duration": 24.98809523809524,
+    "buy_and_hold_pct": -1.4152366417093942,
+    "final_capital": 1086.7963052717362
+  },
+  "buy_and_hold": -1.4152366417093942
+}

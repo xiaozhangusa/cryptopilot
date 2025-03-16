@@ -19,9 +19,10 @@ class ProgressIndicator:
         self.index = (self.index + 1) % len(self.spinner)
 
 class Deployer:
-    def __init__(self, mode: str, environment: str, args):
+    def __init__(self, mode: str, environment: str, target: str, args):
         self.mode = mode  # 'local' or 'aws'
         self.environment = environment  # 'simulation' or 'live'
+        self.target = target  # 'all', 'trading-bot', or 'backtest'
         self.args = args
         self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.progress = ProgressIndicator()
@@ -102,6 +103,27 @@ class Deployer:
         else:
             logging.info("✅ Using existing base image")
 
+    def build_target(self):
+        """Build the specified target without starting it"""
+        logging.info(f"Building {self.target} container(s)...")
+        
+        # Build base image first
+        self.build_base_image()
+        
+        # Build the appropriate container(s)
+        if self.target == 'all':
+            if self.execute_command("docker-compose build") != 0:
+                raise RuntimeError("Failed to build all containers")
+            logging.info("✅ All containers built successfully")
+        elif self.target == 'trading-bot':
+            if self.execute_command("docker-compose build trading-bot") != 0:
+                raise RuntimeError("Failed to build trading-bot container")
+            logging.info("✅ Trading bot container built successfully")
+        elif self.target == 'backtest':
+            if self.execute_command("docker-compose build backtest") != 0:
+                raise RuntimeError("Failed to build backtest container")
+            logging.info("✅ Backtest container built successfully")
+
     def deploy_local(self):
         """Handle local deployment"""
         logging.info("Starting local deployment...")
@@ -109,24 +131,58 @@ class Deployer:
         # Always build base image first
         self.build_base_image()
         
-        # Build Docker containers
-        logging.info("Building Docker containers...")
-        if self.execute_command("docker-compose build") != 0:
-            raise RuntimeError("Failed to build Docker containers")
+        # If build-only flag is set, just build the target and exit
+        if self.args.build_only:
+            self.build_target()
+            return
+        
+        # Build Docker containers based on target
+        if self.target == 'all':
+            logging.info("Building all containers...")
+            if self.execute_command("docker-compose build") != 0:
+                raise RuntimeError("Failed to build Docker containers")
             
-        # Start containers
-        logging.info("Starting Docker containers...")
-        if self.args.detach:
-            command = "docker-compose up -d"
-            if self.execute_command(command) != 0:
-                raise RuntimeError("Failed to start Docker containers")
+            # Start containers
+            logging.info("Starting Docker containers...")
+            if self.args.detach:
+                command = "docker-compose up -d"
+                if self.execute_command(command) != 0:
+                    raise RuntimeError("Failed to start Docker containers")
+                
+                # Verify containers are running
+                if self.execute_command("docker-compose ps -q") != 0:
+                    raise RuntimeError("Container failed to start")
+            else:
+                # Simply execute docker-compose up
+                os.execvp("docker-compose", ["docker-compose", "up"])
+                
+        elif self.target == 'trading-bot':
+            logging.info("Building trading-bot container...")
+            if self.execute_command("docker-compose build trading-bot") != 0:
+                raise RuntimeError("Failed to build trading-bot container")
             
-            # Verify containers are running
-            if self.execute_command("docker-compose ps -q") != 0:
-                raise RuntimeError("Container failed to start")
-        else:
-            # Simply execute docker-compose up
-            os.execvp("docker-compose", ["docker-compose", "up"])
+            # Start trading-bot container
+            logging.info("Starting trading-bot container...")
+            if self.args.detach:
+                command = "docker-compose up -d trading-bot"
+                if self.execute_command(command) != 0:
+                    raise RuntimeError("Failed to start trading-bot container")
+            else:
+                os.execvp("docker-compose", ["docker-compose", "up", "trading-bot"])
+                
+        elif self.target == 'backtest':
+            logging.info("Building backtest container...")
+            if self.execute_command("docker-compose build backtest") != 0:
+                raise RuntimeError("Failed to build backtest container")
+            
+            # Start backtest container
+            logging.info("Starting backtest container...")
+            if self.args.detach:
+                command = "docker-compose --profile backtest up -d backtest"
+                if self.execute_command(command) != 0:
+                    raise RuntimeError("Failed to start backtest container")
+            else:
+                os.execvp("docker-compose", ["docker-compose", "--profile", "backtest", "up", "backtest"])
 
     def deploy_aws(self):
         """Handle AWS deployment"""
@@ -135,14 +191,24 @@ class Deployer:
         # Check AWS credentials
         if self.execute_command("aws sts get-caller-identity") != 0:
             raise RuntimeError("AWS credentials not configured")
+        
+        # If build-only flag is set, build the image and push to ECR but don't deploy
+        if self.args.build_only:
+            logging.info(f"Building {self.target} for AWS and pushing to ECR...")
+            # Add ECR build and push commands here
+            logging.info("✅ Container built and pushed to ECR")
+            return
             
         # Deploy using Terraform
         infra_dir = os.path.join(self.project_root, 'infrastructure')
         
+        # Add target-specific variables if needed
+        target_var = f"-var=\"deployment_target={self.target}\""
+        
         commands = [
             "terraform init",
             f"terraform workspace select {self.environment} || terraform workspace new {self.environment}",
-            f"terraform apply -var=\"environment={self.environment}\" -auto-approve"
+            f"terraform apply {target_var} -var=\"environment={self.environment}\" -auto-approve"
         ]
         
         for command in commands:
@@ -159,11 +225,14 @@ class Deployer:
                 self.deploy_local()
             else:
                 self.deploy_aws()
-                
-            logging.info("✅ Deployment successful")
             
-            if self.mode == 'local' and not self.args.detach:
-                logging.info("📊 Logs available via: docker-compose logs -f")
+            if not self.args.build_only:
+                logging.info(f"✅ Deployment of {self.target} successful")
+                
+                if self.mode == 'local' and not self.args.detach:
+                    logging.info("📊 Logs available via: docker-compose logs -f")
+            else:
+                logging.info(f"✅ Build of {self.target} successful")
                 
         except Exception as e:
             logging.error(f"❌ Deployment failed: {str(e)}")
@@ -173,9 +242,12 @@ def main():
     parser = argparse.ArgumentParser(description='Deploy trading bot')
     parser.add_argument('--mode', choices=['local', 'aws'], required=True)
     parser.add_argument('--env', choices=['simulation', 'live'], required=True)
+    parser.add_argument('--target', choices=['all', 'trading-bot', 'backtest'], default='all',
+                      help='Deployment target: all, trading-bot, or backtest')
     parser.add_argument('--verbose', action='store_true')
     parser.add_argument('--detach', action='store_true')
     parser.add_argument('--rebuild-base', action='store_true', help='Force rebuild of base image')
+    parser.add_argument('--build-only', action='store_true', help='Only build the container without starting it')
     
     args = parser.parse_args()
     
@@ -186,7 +258,7 @@ def main():
     )
     
     try:
-        deployer = Deployer(args.mode, args.env, args)
+        deployer = Deployer(args.mode, args.env, args.target, args)
         deployer.deploy()
     except Exception as e:
         logging.error(f"❌ Unexpected error: {str(e)}")

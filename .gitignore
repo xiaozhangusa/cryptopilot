@@ -13,6 +13,7 @@ config.json
 *api_key*
 .secrets/
 credentials/
+backtest_results/
 
 # AWS credentials and config
 .aws/

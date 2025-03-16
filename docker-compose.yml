@@ -21,6 +21,26 @@ services:
       - ./secrets.json:/app/secrets.json:ro
     command: python -u -m src.local_run
 
+  backtest:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: backtest-1
+    env_file:
+      - .env.backtest
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - .:/app
+      - ./secrets.json:/app/secrets.json:ro
+      - ./backtest_results:/app/backtest_results
+    profiles:
+      - backtest
+    command: python -u -m src.backtest.backtest_mock
+
   test:
     build:
       context: .

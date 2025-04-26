@@ -5,7 +5,7 @@ import logging
 from .timeframes import Timeframe
 from datetime import datetime, timezone
 import pytz  # Add this import
-from .indicators import RSI, EMA
+from .indicators import RSI, EMA, MACD
 
 logger = logging.getLogger(__name__)
 
@@ -26,22 +26,34 @@ class SwingStrategy:
     def __init__(self, 
                  timeframe: Timeframe = Timeframe.FIVE_MINUTE,
                  rsi_period: int = 14,
-                 ema_period: int = 20):
+                 ema_period: int = 20,
+                 macd_fast_period: int = 12,
+                 macd_slow_period: int = 26,
+                 macd_signal_period: int = 9):
         """Initialize strategy with timeframe-specific parameters
         
         Args:
             timeframe: Trading timeframe (default: 5 minutes)
             rsi_period: RSI period (default: 14)
             ema_period: EMA period (default: 20)
+            macd_fast_period: MACD fast period (default: 12)
+            macd_slow_period: MACD slow period (default: 26)
+            macd_signal_period: MACD signal period (default: 9)
         """
         self.timeframe = timeframe
         
         # Initialize indicators
         self.rsi = RSI(period=rsi_period, timeframe=timeframe)
         self.ema = EMA(period=ema_period)
+        self.macd = MACD(fast_period=macd_fast_period, slow_period=macd_slow_period, signal_period=macd_signal_period)
+        
+        # Store RSI thresholds that can be adjusted for more frequent signals
+        self.rsi_oversold = 30  # Default 30, more aggressive: 40
+        self.rsi_overbought = 70  # Default 70, more aggressive: 60
         
         logger.info(f"Initialized {timeframe.value} strategy with: "
-                   f"RSI({rsi_period}), EMA({ema_period})")
+                   f"RSI({rsi_period}), EMA({ema_period}), "
+                   f"MACD({macd_fast_period},{macd_slow_period},{macd_signal_period})")
     
     def set_verbose_calculations(self, verbose: bool = True):
         """
@@ -111,6 +123,7 @@ class SwingStrategy:
         # Set show_calculations to False for the second call to prevent duplicating the RSI calculation display
         rsi_signal = self.rsi.get_signal(prices, timestamps, show_calculations=False)
         ema_signal = self.ema.get_signal(prices, timestamps)
+        macd_signal = self.macd.get_signal(prices, timestamps)
         
         # Get the current price (most recent)
         # If real-time price is provided, use it
@@ -128,10 +141,11 @@ class SwingStrategy:
         # Log indicator values
         logger.info(f"{self.timeframe.value} RSI: {rsi_signal['value']:.2f}, "
                    f"EMA({self.ema.period}): {ema_signal['value']:.2f}, "
+                   f"MACD: {macd_signal['value']:.4f}, Signal: {macd_signal['signal_line']:.4f}, "
                    f"Current price: ${current_price:.2f}")
         
         # Combine indicators to generate a trading signal
-        signal, confidence = self._combine_signals(rsi_signal, ema_signal)
+        signal, confidence = self._combine_signals(rsi_signal, ema_signal, macd_signal)
         
         if signal != 'NEUTRAL':
             logger.info(f"{self.timeframe.value} Combined signal: {signal} with {confidence:.2f} confidence")
@@ -141,20 +155,23 @@ class SwingStrategy:
                 price=current_price,
                 timeframe=self.timeframe,
                 confidence=confidence,
-                indicators={'rsi': rsi_signal, 'ema': ema_signal}
+                indicators={'rsi': rsi_signal, 'ema': ema_signal, 'macd': macd_signal}
             )
         else:
             logger.info(f"{self.timeframe.value} No actionable signal (confidence: {confidence:.2f})")
         
         return None
     
-    def _combine_signals(self, rsi_signal: Dict[str, Any], ema_signal: Dict[str, Any]) -> Tuple[str, float]:
+    def _combine_signals(self, rsi_signal: Dict[str, Any], ema_signal: Dict[str, Any], 
+                         macd_signal: Dict[str, Any]) -> Tuple[str, float]:
         """
-        Combine RSI and EMA signals to generate a trading decision.
+        Combine RSI, EMA and MACD signals to generate a trading decision.
+        More aggressive strategy to generate more frequent trading signals.
         
         Args:
             rsi_signal: Signal dictionary from RSI indicator
             ema_signal: Signal dictionary from EMA indicator
+            macd_signal: Signal dictionary from MACD indicator
             
         Returns:
             Tuple of (signal, confidence)
@@ -163,16 +180,19 @@ class SwingStrategy:
         """
         rsi_action = rsi_signal['signal']
         ema_action = ema_signal['signal']
+        macd_action = macd_signal['signal']
         rsi_value = rsi_signal['value']
         
         # Normalize indicator strengths to 0-1 range
         rsi_strength = rsi_signal['strength'] / 100
         ema_strength = ema_signal['strength'] / 100
+        macd_strength = macd_signal['strength'] / 100
         
-        # Calculate base confidence levels
-        # Give RSI 70% weight (was 60%) and EMA 30% weight (was 40%)
-        rsi_confidence = rsi_strength * 0.7  # RSI contributes 70%
-        ema_confidence = ema_strength * 0.3  # EMA contributes 30%
+        # Calculate base confidence levels with new weights
+        # RSI: 50%, EMA: 20%, MACD: 30%
+        rsi_confidence = rsi_strength * 0.5
+        ema_confidence = ema_strength * 0.2
+        macd_confidence = macd_strength * 0.3
         
         # Calculate EMA slope from distance percentage
         ema_distance = ema_signal['distance_pct']
@@ -181,53 +201,95 @@ class SwingStrategy:
         combined_signal = 'NEUTRAL'
         confidence = 0.0
         
-        # Strategy 1: Strong agreement between indicators
-        if rsi_action == ema_action and rsi_action != 'NEUTRAL':
+        # Extract MACD values for additional analysis
+        macd_value = macd_signal['value']
+        signal_line = macd_signal['signal_line']
+        histogram = macd_signal['histogram']
+        histogram_change = macd_signal['histogram_change']
+        
+        # Strategy 1: Strong agreement between indicators (all three)
+        if rsi_action == ema_action == macd_action and rsi_action != 'NEUTRAL':
             combined_signal = rsi_action
-            # Both indicators agree, so we have high confidence
-            confidence = (rsi_confidence + ema_confidence) * 1.2  # Bonus for agreement
-            logger.info(f"Strong agreement: RSI and EMA both suggest {combined_signal}")
+            # All indicators agree, so we have high confidence
+            confidence = (rsi_confidence + ema_confidence + macd_confidence) * 1.2  # Bonus for agreement
+            logger.info(f"Strong agreement: RSI, EMA, and MACD all suggest {combined_signal}")
+        
+        # Strategy 2: MACD crossover (highest priority)
+        elif macd_action != 'NEUTRAL':
+            combined_signal = macd_action
+            # MACD crossovers are strong signals
+            confidence = macd_confidence * 1.5
             
-        # Strategy 2: RSI extremes with confirming trend
-        # More sensitive to early trend reversal - allow up to -2.5% (was -2%)
-        elif rsi_action == 'BUY' and ema_signal['distance_pct'] > -2.5:
-            # RSI suggests buy and price is close to or approaching EMA (early trend reversal)
-            combined_signal = 'BUY'
+            # Add confirmation bonus if RSI or EMA agree
+            if rsi_action == macd_action:
+                confidence += rsi_confidence * 0.3
+                logger.info(f"MACD {macd_action} crossover confirmed by RSI")
             
-            # Special case: Deeply oversold RSI (below 20) - higher confidence even with price below EMA
-            if rsi_value < 20:
-                # Deep oversold is a stronger signal, increase confidence
-                confidence = rsi_confidence * (1 + 0.5 * (1 + ema_confidence))
-                logger.info(f"Deep RSI oversold ({rsi_value:.2f}) indicates potential reversal (price to EMA: {ema_signal['distance_pct']:.2f}%)")
+            if ema_action == macd_action:
+                confidence += ema_confidence * 0.2
+                logger.info(f"MACD {macd_action} crossover confirmed by EMA trend")
+            
+            logger.info(f"MACD {macd_action} signal with histogram: {histogram:.4f}, change: {histogram_change:.4f}")
+        
+        # Strategy 3: RSI extreme values (medium priority)
+        elif rsi_action != 'NEUTRAL':
+            combined_signal = rsi_action
+            
+            # Special case: Deep oversold (below 25) - high confidence even with minimal confirmation
+            if rsi_action == 'BUY' and rsi_value < 25:
+                confidence = rsi_confidence * 1.5
+                logger.info(f"Deep RSI oversold ({rsi_value:.2f}) indicates strong reversal potential")
+            
+            # Special case: Deep overbought (above 75) - high confidence even with minimal confirmation
+            elif rsi_action == 'SELL' and rsi_value > 75:
+                confidence = rsi_confidence * 1.5
+                logger.info(f"Deep RSI overbought ({rsi_value:.2f}) indicates strong reversal potential")
+            
+            # Regular RSI signal
             else:
-                # Regular oversold case - adjust formula to give more weight to RSI
-                confidence = rsi_confidence * (1 + 0.4 * ema_confidence)
-                logger.info(f"RSI oversold in neutral/bullish trend (price to EMA: {ema_signal['distance_pct']:.2f}%)")
+                confidence = rsi_confidence
+                
+                # Add confirmation bonus if MACD histogram agrees with direction
+                if (rsi_action == 'BUY' and histogram_change > 0) or (rsi_action == 'SELL' and histogram_change < 0):
+                    confidence += 0.1
+                    logger.info(f"RSI {rsi_action} confirmed by MACD histogram direction")
             
-            # Add a boost for prices getting closer to EMA (potential early reversal)
-            if ema_signal['distance_pct'] > -1:
-                confidence *= 1.15  # 15% confidence boost when price is very close to EMA
-                logger.info(f"Price approaching EMA - potential trend reversal signal")
-            
-        elif rsi_action == 'SELL' and ema_signal['distance_pct'] < 2:
-            # RSI suggests sell and price is close to or below EMA (confirming downtrend)
-            combined_signal = 'SELL'
-            confidence = rsi_confidence * (1 + 0.3 * ema_confidence)
-            logger.info(f"RSI overbought in neutral/bearish trend (price to EMA: {ema_signal['distance_pct']:.2f}%)")
-            
-        # Strategy 3: EMA crossover with confirming RSI
-        elif ema_action != 'NEUTRAL' and rsi_signal['value'] > 40 and rsi_signal['value'] < 60:
-            # EMA crossover with RSI in neutral zone (avoiding extremes)
+            # Add EMA confirmation bonus
+            if (rsi_action == 'BUY' and ema_distance > -3) or (rsi_action == 'SELL' and ema_distance < 3):
+                confidence += 0.1
+                logger.info(f"RSI {rsi_action} has favorable EMA position: {ema_distance:.2f}%")
+        
+        # Strategy 4: EMA significant crosses (lowest priority)
+        elif ema_action != 'NEUTRAL' and abs(ema_distance) < 0.5:
             combined_signal = ema_action
-            confidence = ema_confidence * (1 + 0.2 * (1 - abs(rsi_signal['value'] - 50) / 10))
-            logger.info(f"EMA {ema_action} crossover with neutral RSI ({rsi_signal['value']:.2f})")
+            confidence = ema_confidence
+            
+            # Add confirmation from MACD direction
+            if (ema_action == 'BUY' and histogram > 0) or (ema_action == 'SELL' and histogram < 0):
+                confidence += 0.15
+                logger.info(f"EMA {ema_action} confirmed by MACD histogram sign")
+            
+            logger.info(f"EMA {ema_action} signal with price-to-EMA distance: {ema_distance:.2f}%")
+        
+        # Strategy 5: MACD histogram turning points (new strategy for more signals)
+        elif abs(histogram_change) > abs(histogram) * 0.2:  # 20% change in histogram
+            if histogram_change > 0 and histogram < 0:
+                # Negative histogram starting to turn up - potential buy
+                combined_signal = 'BUY'
+                confidence = 0.3 + min(0.3, abs(histogram_change) * 5)
+                logger.info(f"MACD histogram turning up from negative: potential reversal BUY signal")
+            elif histogram_change < 0 and histogram > 0:
+                # Positive histogram starting to turn down - potential sell
+                combined_signal = 'SELL'
+                confidence = 0.3 + min(0.3, abs(histogram_change) * 5)
+                logger.info(f"MACD histogram turning down from positive: potential reversal SELL signal")
         
         # Cap confidence at 1.0
         confidence = min(1.0, confidence)
         
-        # Require minimum confidence threshold
-        # Lower threshold for BUY signals to 0.30 (was 0.35)
-        min_confidence = 0.30 if combined_signal == 'BUY' else 0.35
+        # Require minimum confidence threshold - LOWERED for more frequent signals
+        # Lower threshold for both BUY and SELL signals to 0.25 (was 0.3/0.35)
+        min_confidence = 0.25
         if confidence < min_confidence:
             logger.info(f"Signal {combined_signal} has low confidence ({confidence:.2f}), changing to NEUTRAL")
             return 'NEUTRAL', confidence
@@ -235,7 +297,7 @@ class SwingStrategy:
         return combined_signal, confidence
 
     def print_candle_analysis(self, prices: List[float], timestamps: List[int], symbol: Optional[str] = None, current_price: Optional[float] = None) -> None:
-        """Print detailed candle analysis and RSI calculation
+        """Print detailed candle analysis and indicator calculations
         
         Args:
             prices: List of price values
@@ -353,9 +415,10 @@ class SwingStrategy:
         # Add indicator analysis section
         print("\n📊 Indicator Analysis:")
         
-        # Calculate both indicators
+        # Calculate indicators
         rsi_value = self.rsi.calculate(prices, timestamps)
         ema_value = self.ema.calculate(prices, timestamps)
+        macd_value, signal_line, histogram = self.macd.calculate(prices, timestamps)
         
         # Create chronological prices (oldest first) for additional analysis
         chronological_prices = list(reversed(display_prices.copy()))
@@ -392,22 +455,204 @@ class SwingStrategy:
             print(f"\n📊 Using candle data price: ${current_price:.2f}")
         
         # Show RSI details
-        print(f"\nRSI({self.rsi.period}): {rsi_value:.2f}")
-        print(f"RSI Thresholds: Oversold < {self.rsi.oversold} | Overbought > {self.rsi.overbought}")
+        print(f"\n📈 RSI Calculation:")
+        print(f"Using {self.rsi.period} periods from {oldest_time.strftime('%H:%M')} to {newest_time.strftime('%H:%M')} {tz_abbr}")
+        
+        # Display actual RSI calculation similar to the screenshot
+        up_moves = [g for g in gains if g > 0][:self.rsi.period]
+        down_moves = [l for l in losses if l > 0][:self.rsi.period]
+        
+        # Format the gains and losses display
+        gains_str = " + ".join([f"${g:.2f}" for g in up_moves[:5]])
+        if len(up_moves) > 5:
+            gains_str += f" + ... ({len(up_moves) - 5} more)"
+            
+        losses_str = " + ".join([f"${l:.2f}" for l in down_moves[:5]])
+        if len(down_moves) > 5:
+            losses_str += f" + ... ({len(down_moves) - 5} more)"
+            
+        # Calculate average gain and loss for display
+        avg_gain = sum(up_moves) / self.rsi.period if up_moves else 0
+        avg_loss = sum(down_moves) / self.rsi.period if down_moves else 0
+        rs = avg_gain / avg_loss if avg_loss > 0 else 0
+        
+        print(f"Gains in period ({len(up_moves)}/{self.rsi.period} candles): {gains_str}")
+        print(f"Losses in period ({len(down_moves)}/{self.rsi.period} candles): {losses_str}")
+        print(f"Average Gain: ${avg_gain:.2f}")
+        print(f"Average Loss: ${avg_loss:.2f}")
+        print(f"Relative Strength (RS) = Avg Gain / Avg Loss = {rs:.2f}")
+        print(f"RSI = 100 - (100 / (1 + RS)) = {rsi_value:.2f}")
+        print(f"RSI Thresholds: Oversold < {self.rsi_oversold} | Overbought > {self.rsi_overbought}")
         
         # Show EMA details
-        print(f"\nEMA({self.ema.period}): {ema_value:.2f}")
+        print(f"\n📉 EMA Calculation:")
+        print(f"Period: {self.ema.period}, Smoothing Factor: {2.0 / (self.ema.period + 1):.4f}")
+        print(f"Final EMA({self.ema.period}) = ${ema_value:.2f}")
         print(f"Current Price to EMA: {(current_price / ema_value - 1) * 100:.2f}%")
         
+        # Show MACD details
+        print(f"\n📊 MACD Calculation:")
+        print(f"Fast EMA({self.macd.fast_period}), Slow EMA({self.macd.slow_period}), Signal({self.macd.signal_period})")
+        
+        # Calculate MACD series for visualization
+        macd_series = self.macd.calculate_series(chronological_prices, chronological_timestamps)
+        macd_line = macd_series['macd']
+        signal_line_series = macd_series['signal']
+        histogram_series = macd_series['histogram']
+        
+        # Display recent MACD values (last 6 periods)
+        recent_periods = 6
+        start_idx = max(0, len(macd_line) - recent_periods)
+        
+        print("\nRecent MACD Values:")
+        print("Date/Time".ljust(12) + "MACD".ljust(12) + "Signal".ljust(12) + "Histogram".ljust(12) + "Trend")
+        print("-" * 60)
+        
+        for i in range(start_idx, len(macd_line)):
+            if i < len(chronological_timestamps):
+                dt = datetime.fromtimestamp(chronological_timestamps[i], tz=utc_tz).astimezone(est_tz)
+                time_str = dt.strftime("%H:%M")
+                
+                # Get values, handling NaN
+                macd_val = macd_line[i] if not np.isnan(macd_line[i]) else 0
+                signal_val = signal_line_series[i] if not np.isnan(signal_line_series[i]) else 0
+                hist_val = histogram_series[i] if not np.isnan(histogram_series[i]) else 0
+                
+                # Determine trend indicators
+                trend = ""
+                if i > 0 and i < len(histogram_series):
+                    prev_hist = histogram_series[i-1] if not np.isnan(histogram_series[i-1]) else 0
+                    hist_change = hist_val - prev_hist
+                    
+                    if macd_val > signal_val and hist_val > 0:
+                        trend = "🟢 Bullish"
+                    elif macd_val < signal_val and hist_val < 0:
+                        trend = "🔴 Bearish"
+                    elif hist_val > 0 and hist_change > 0:
+                        trend = "↗️ Gaining"
+                    elif hist_val < 0 and hist_change < 0:
+                        trend = "↘️ Weakening"
+                    elif hist_val > 0 and hist_change < 0:
+                        trend = "↗️➡️ Slowing"
+                    elif hist_val < 0 and hist_change > 0:
+                        trend = "↘️➡️ Improving"
+                
+                print(f"{time_str}".ljust(12) + 
+                      f"{macd_val:.4f}".ljust(12) + 
+                      f"{signal_val:.4f}".ljust(12) + 
+                      f"{hist_val:.4f}".ljust(12) + 
+                      f"{trend}")
+        
+        # Print a simple MACD histogram visualization
+        print("\nMACD Histogram:")
+        print("+" + "-" * 30 + "0" + "-" * 30 + "-")
+        
+        # Determine scale for histogram
+        max_hist = max([abs(h) for h in histogram_series if not np.isnan(h)]) if histogram_series else 1
+        scale_factor = 30 / max_hist if max_hist > 0 else 1
+        
+        for i in range(start_idx, len(histogram_series)):
+            if i < len(chronological_timestamps):
+                dt = datetime.fromtimestamp(chronological_timestamps[i], tz=utc_tz).astimezone(est_tz)
+                time_str = dt.strftime("%H:%M")
+                
+                # Get histogram value, handling NaN
+                hist_val = histogram_series[i] if not np.isnan(histogram_series[i]) else 0
+                
+                # Calculate bar length and character based on sign
+                bar_len = abs(int(hist_val * scale_factor))
+                bar_char = "█" if hist_val > 0 else "▓"
+                
+                # Create a minimal dot for zero values
+                if hist_val == 0:
+                    bar = " " * 30 + "•"
+                
+                # Create the bar with proper alignment
+                if hist_val > 0:
+                    bar = " " * 30 + bar_char * bar_len
+                else:
+                    bar = " " * (30 - bar_len) + bar_char * bar_len + " " * 30
+                
+                # Print with time and value
+                print(f"{time_str} ({hist_val:.4f}): {bar}")
+        
+        # Current MACD values summary
+        print(f"\nCurrent MACD: {macd_value:.4f}")
+        print(f"Signal Line: {signal_line:.4f}")
+        print(f"Histogram: {histogram:.4f}")
+        
+        if macd_value > signal_line:
+            # Handle division by zero
+            if signal_line != 0:
+                # Special case for opposite signs
+                if signal_line < 0 and macd_value > 0:
+                    print(f"MACD above Signal by {macd_value - signal_line:.4f} (MACD positive, Signal negative)")
+                else:
+                    pct_diff = ((macd_value / signal_line) - 1) * 100
+                    # Cap extreme values
+                    if abs(pct_diff) > 1000:
+                        print(f"MACD above Signal by {macd_value - signal_line:.4f} (>1000% difference)")
+                    else:
+                        print(f"MACD above Signal by {macd_value - signal_line:.4f} ({pct_diff:.2f}%)")
+            else:
+                print(f"MACD above Signal by {macd_value - signal_line:.4f}")
+        else:
+            # Handle division by zero
+            if macd_value != 0:
+                # Special case for opposite signs
+                if macd_value < 0 and signal_line > 0:
+                    print(f"MACD below Signal by {signal_line - macd_value:.4f} (MACD negative, Signal positive)")
+                else:
+                    pct_diff = ((signal_line / macd_value) - 1) * 100
+                    # Cap extreme values
+                    if abs(pct_diff) > 1000:
+                        print(f"MACD below Signal by {signal_line - macd_value:.4f} (>1000% difference)")
+                    else:
+                        print(f"MACD below Signal by {signal_line - macd_value:.4f} ({pct_diff:.2f}%)")
+            else:
+                print(f"MACD below Signal by {signal_line - macd_value:.4f}")
+        
         # Show cross-indicator analysis
-        if rsi_value < self.rsi.oversold and current_price > ema_value:
+        if rsi_value < self.rsi_oversold and current_price > ema_value:
             print("\n🔔 SIGNAL: RSI oversold while price above EMA - Potential bullish setup")
-        elif rsi_value > self.rsi.overbought and current_price < ema_value:
+        elif rsi_value > self.rsi_overbought and current_price < ema_value:
             print("\n🔔 SIGNAL: RSI overbought while price below EMA - Potential bearish setup")
-        elif rsi_value < self.rsi.oversold and current_price < ema_value:
-            print("\n⚠️ MIXED: RSI oversold but price below EMA - Conflicting signals")
-        elif rsi_value > self.rsi.overbought and current_price > ema_value:
-            print("\n⚠️ MIXED: RSI overbought but price above EMA - Conflicting signals")
+        elif rsi_value < self.rsi_oversold and histogram > 0:
+            print("\n🔔 SIGNAL: RSI oversold with positive MACD histogram - Bullish divergence")
+        elif rsi_value > self.rsi_overbought and histogram < 0:
+            print("\n🔔 SIGNAL: RSI overbought with negative MACD histogram - Bearish divergence")
+        elif macd_value > signal_line and macd_value - signal_line > abs(macd_value) * 0.05:
+            print("\n🔔 SIGNAL: Strong MACD crossover above signal line - Bullish momentum")
+        elif macd_value < signal_line and signal_line - macd_value > abs(macd_value) * 0.05:
+            print("\n🔔 SIGNAL: Strong MACD crossover below signal line - Bearish momentum")
+        
+        # Add Signal Generation Logic explanation with ASCII art
+        print("\n🧠 SIGNAL GENERATION LOGIC:")
+        print("┌───────────────────────────────────────────────────────────────────────┐")
+        print("│ PRIORITY 1: ALL INDICATORS AGREE                                      │")
+        print("│   BUY when: RSI, EMA, MACD all bullish ➡️ High confidence (x1.2)      │")
+        print("│   SELL when: RSI, EMA, MACD all bearish ➡️ High confidence (x1.2)     │")
+        print("│                                                                       │")
+        print("│ PRIORITY 2: MACD CROSSOVER                                           │")
+        print("│   BUY when: MACD crosses above Signal ➡️ Base confidence (x1.5)       │")
+        print("│   SELL when: MACD crosses below Signal ➡️ Base confidence (x1.5)      │")
+        print("│   +RSI/EMA confirmation: Additional confidence bonus                  │")
+        print("│                                                                       │")
+        print("│ PRIORITY 3: EXTREME RSI                                              │")
+        print("│   BUY when: RSI < 25 (deeply oversold) ➡️ Medium confidence (x1.5)    │")
+        print("│   SELL when: RSI > 75 (deeply overbought) ➡️ Medium confidence (x1.5) │")
+        print("│   Regular RSI signals (30/70): Lower confidence                       │")
+        print("│                                                                       │")
+        print("│ PRIORITY 4: EMA CROSSES                                              │")
+        print("│   BUY when: Price crosses above EMA ➡️ Lower confidence               │")
+        print("│   SELL when: Price crosses below EMA ➡️ Lower confidence              │")
+        print("│                                                                       │")
+        print("│ PRIORITY 5: MACD HISTOGRAM CHANGES                                   │")
+        print("│   BUY when: Histogram turns up while negative ➡️ Lower confidence     │")
+        print("│   SELL when: Histogram turns down while positive ➡️ Lower confidence  │")
+        print("│                                                                       │")
+        print("│ MINIMUM CONFIDENCE THRESHOLD: 0.25 (increased frequency)             │")
+        print("└───────────────────────────────────────────────────────────────────────┘")
     
     def analyze_rsi_swings(self, prices: List[float], timestamps: List[int]) -> dict:
         """Analyze RSI swings from oversold to overbought conditions
@@ -440,11 +685,11 @@ class SwingStrategy:
         swing_start_time = 0
         
         for i in range(len(rsi_values)-1):
-            if not in_swing and rsi_values[i] < self.rsi.oversold:
+            if not in_swing and rsi_values[i] < self.rsi_oversold:
                 in_swing = True
                 swing_start_price = prices[i+self.rsi.period]
                 swing_start_time = timestamps[i+self.rsi.period]
-            elif in_swing and rsi_values[i] > self.rsi.overbought:
+            elif in_swing and rsi_values[i] > self.rsi_overbought:
                 swing_end_price = prices[i+self.rsi.period]
                 swing_end_time = timestamps[i+self.rsi.period]
                 swing_pct = (swing_end_price - swing_start_price) / swing_start_price

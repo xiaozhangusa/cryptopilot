@@ -75,20 +75,57 @@ class MACD(IndicatorBase):
         
         if len(valid_macd) < self.signal_period:
             logger.warning(f"Not enough valid MACD values for signal line calculation")
-            return 0, 0, 0
+            return macd_line[-1] if macd_line and not np.isnan(macd_line[-1]) else 0, 0, 0
         
         # Calculate signal line as EMA of MACD line
         signal_line = []
-        for i in range(len(macd_line)):
-            if i < self.slow_period - 1:
-                signal_line.append(np.nan)  # Not enough data yet
-            elif i == self.slow_period - 1:
-                # Initialize with SMA
-                signal_line.append(np.mean(macd_line[self.slow_period - self.signal_period:self.slow_period]))
+        
+        # First calculate an initial SMA of the MACD for the signal line
+        initial_sma_idx = self.slow_period - 1  # Start index for initial calculation
+        
+        # If we have enough data points, use them for the SMA calculation
+        if initial_sma_idx >= 0 and initial_sma_idx + self.signal_period <= len(macd_line):
+            # Extract valid values for SMA calculation
+            sma_values = [x for x in macd_line[initial_sma_idx:(initial_sma_idx + self.signal_period)] if not np.isnan(x)]
+            
+            # Pad with NaN values up to initial_sma_idx
+            signal_line = [np.nan] * initial_sma_idx
+            
+            # Add the initial SMA value if we have valid values
+            if sma_values:
+                signal_line.append(np.mean(sma_values))
             else:
-                # EMA formula: (Current - Previous) * Multiplier + Previous
-                multiplier = 2.0 / (self.signal_period + 1)
-                signal_line.append((macd_line[i] - signal_line[i-1]) * multiplier + signal_line[i-1])
+                signal_line.append(np.nan)
+                
+            # Now calculate the EMA for remaining values
+            multiplier = 2.0 / (self.signal_period + 1)
+            
+            for i in range(initial_sma_idx + 1, len(macd_line)):
+                prev_signal = signal_line[-1]
+                # Skip calculation if previous signal or current MACD is NaN
+                if np.isnan(prev_signal) or np.isnan(macd_line[i]):
+                    signal_line.append(np.nan)
+                else:
+                    # EMA formula: (Current - Previous) * Multiplier + Previous
+                    new_signal = (macd_line[i] - prev_signal) * multiplier + prev_signal
+                    signal_line.append(new_signal)
+        else:
+            # Fallback: If we don't have enough data, initialize with MACD value
+            signal_line = [np.nan] * len(macd_line)
+            
+            # Find the first valid MACD value to start the signal line
+            for i in range(len(macd_line)):
+                if not np.isnan(macd_line[i]):
+                    signal_line[i] = macd_line[i]
+                    
+                    # Calculate forward from this point
+                    multiplier = 2.0 / (self.signal_period + 1)
+                    for j in range(i+1, len(macd_line)):
+                        if np.isnan(macd_line[j]):
+                            signal_line[j] = np.nan
+                        else:
+                            signal_line[j] = (macd_line[j] - signal_line[j-1]) * multiplier + signal_line[j-1]
+                    break
         
         # Calculate histogram (MACD line - signal line)
         histogram = []
@@ -138,24 +175,53 @@ class MACD(IndicatorBase):
                 macd_line.append(fast_ema_values[i] - slow_ema_values[i])
         
         # Calculate signal line (EMA of MACD line)
-        valid_macd_start = self.slow_period - 1
-        signal_line = [np.nan] * valid_macd_start
+        # First calculate an initial SMA of the MACD for the signal line
+        initial_sma_idx = self.slow_period - 1  # Start index for initial calculation
+        signal_line = []
         
-        # Initialize signal line with SMA of first valid MACD values
-        if len(macd_line) > valid_macd_start + self.signal_period:
-            initial_signal = np.mean(macd_line[valid_macd_start:valid_macd_start + self.signal_period])
-            signal_line.append(initial_signal)
+        # If we have enough data points, use them for the SMA calculation
+        if initial_sma_idx >= 0 and initial_sma_idx + self.signal_period <= len(macd_line):
+            # Extract valid values for SMA calculation
+            sma_values = [x for x in macd_line[initial_sma_idx:(initial_sma_idx + self.signal_period)] if not np.isnan(x)]
             
-            # Calculate rest of signal line
+            # Pad with NaN values up to initial_sma_idx
+            signal_line = [np.nan] * initial_sma_idx
+            
+            # Add the initial SMA value if we have valid values
+            if sma_values:
+                signal_line.append(np.mean(sma_values))
+            else:
+                signal_line.append(np.nan)
+                
+            # Now calculate the EMA for remaining values
             multiplier = 2.0 / (self.signal_period + 1)
-            for i in range(valid_macd_start + 1, len(macd_line)):
-                if i < len(signal_line):
-                    new_signal = (macd_line[i] - signal_line[i-1]) * multiplier + signal_line[i-1]
+            
+            for i in range(initial_sma_idx + 1, len(macd_line)):
+                prev_signal = signal_line[-1]
+                # Skip calculation if previous signal or current MACD is NaN
+                if np.isnan(prev_signal) or np.isnan(macd_line[i]):
+                    signal_line.append(np.nan)
+                else:
+                    # EMA formula: (Current - Previous) * Multiplier + Previous
+                    new_signal = (macd_line[i] - prev_signal) * multiplier + prev_signal
                     signal_line.append(new_signal)
-        
-        # Ensure signal_line is same length as macd_line
-        while len(signal_line) < len(macd_line):
-            signal_line.append(np.nan)
+        else:
+            # Fallback: If we don't have enough data, initialize with MACD value
+            signal_line = [np.nan] * len(macd_line)
+            
+            # Find the first valid MACD value to start the signal line
+            for i in range(len(macd_line)):
+                if not np.isnan(macd_line[i]):
+                    signal_line[i] = macd_line[i]
+                    
+                    # Calculate forward from this point
+                    multiplier = 2.0 / (self.signal_period + 1)
+                    for j in range(i+1, len(macd_line)):
+                        if np.isnan(macd_line[j]):
+                            signal_line[j] = np.nan
+                        else:
+                            signal_line[j] = (macd_line[j] - signal_line[j-1]) * multiplier + signal_line[j-1]
+                    break
         
         # Calculate histogram (MACD line - signal line)
         histogram = []

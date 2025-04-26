@@ -183,7 +183,6 @@ def main():
                     
                     # Process the signal if it exists
                     if signal:
-                    # if True:
                         print(f"\n🔔 Got trading signal: {signal.action} {signal.symbol} at ${signal.price:.2f}")
                         
                         # Display additional signal information if available
@@ -213,7 +212,7 @@ def main():
                                     balance_fraction = 0.05  # Use 5% of available balance
                                     # investment = balance_fraction * 10
                                     investment = 10
-                                    price_percentage = 0.998 # 95% of current price for buy limit order
+                                    price_percentage = 0.999 # 95% of current price for buy limit order
                                     entry_price = signal.price * price_percentage
                                     analyzer = TradeAnalysis(
                                         investment=investment,
@@ -265,7 +264,7 @@ def main():
                                         order = order_manager.create_smart_limit_order(
                                             product_id=trading_pair,
                                             side='SELL',
-                                            price_percentage=1.002,  # 100.5% of current price for sell limit order
+                                            price_percentage=1.001,  # 100.5% of current price for sell limit order
                                             balance_fraction=1.0    # Use full size of matched buy order or available balance
                                         )
                                         

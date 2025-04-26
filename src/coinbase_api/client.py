@@ -618,26 +618,175 @@ class CoinbaseAdvancedClient:
             List of filled orders sorted by creation time (newest first)
         """
         try:
-            orders = self.rest_client.list_orders(
-                product_id=product_id,
-                limit=limit
-            )
+            # First try to use the SDK's get_fills method which is the correct one according to the documentation
+            # https://github.com/coinbase/coinbase-advanced-py/blob/d316b758811ce3c13ef179fb228c569b333cddd1/coinbase/rest/orders.py#L1506
+            fills_data = None
             
-            # Filter for filled orders
-            filled_orders = [order for order in orders if order.status == 'FILLED']
+            # Check available methods in REST client
+            available_methods = [method for method in dir(self.rest_client) 
+                                if not method.startswith('_') and callable(getattr(self.rest_client, method))]
+            
+            # Try get_fills first - this is the correct method according to the documentation
+            if 'get_fills' in available_methods:
+                logger.info("Using get_fills SDK method")
+                try:
+                    # Try first with product_id parameter
+                    fills_response = self.rest_client.get_fills(
+                        product_id=product_id,
+                        limit=limit
+                    )
+                    fills_data = fills_response
+                except TypeError:
+                    # If product_id parameter doesn't work, try with order_id=None
+                    # This allows flexibility since the SDK method might expect different parameters
+                    logger.info("Retrying get_fills with default order_id=None")
+                    fills_response = self.rest_client.get_fills(
+                        order_id=None,
+                        product_id=product_id,
+                        limit=limit
+                    )
+                    fills_data = fills_response
+            # Try alternative methods if get_fills is not available
+            elif 'get_historical_fills' in available_methods:
+                logger.info("Using get_historical_fills SDK method")
+                fills_response = self.rest_client.get_historical_fills(
+                    product_id=product_id,
+                    limit=limit
+                )
+                fills_data = fills_response
+            elif 'list_fills' in available_methods:
+                logger.info("Using list_fills SDK method")
+                fills_response = self.rest_client.list_fills(
+                    product_id=product_id,
+                    limit=limit
+                )
+                fills_data = fills_response
+            else:
+                # No direct method available - try using a lower level request if SDK provides one
+                logger.warning("No direct fill methods found in SDK, checking for raw request capability")
+                if hasattr(self.rest_client, 'make_request') or hasattr(self.rest_client, 'request'):
+                    request_method = getattr(self.rest_client, 'make_request', 
+                                           getattr(self.rest_client, 'request', None))
+                    
+                    if request_method:
+                        logger.info("Using SDK's raw request method")
+                        # Construct parameters based on the endpoint documentation
+                        params = {'product_id': product_id}
+                        if limit:
+                            params['limit'] = limit
+                            
+                        # Make the request to the endpoint
+                        fills_response = request_method(
+                            'GET', 
+                            '/api/v3/brokerage/orders/historical/fills',
+                            params=params
+                        )
+                        fills_data = fills_response
+                else:
+                    # Fallback to list_orders if no way to access historical fills
+                    logger.warning("Falling back to list_orders method to find filled orders")
+                    try:
+                        orders = self.rest_client.list_orders(
+                            product_id=product_id,
+                            limit=limit
+                        )
+                        # Filter for filled orders only
+                        fills_data = [order for order in orders if getattr(order, 'status', '') == 'FILLED']
+                    except Exception as e:
+                        logger.error(f"Error using fallback list_orders method: {str(e)}")
+                        return []
+            
+            # Process the response to extract fills
+            fills = []
+            
+            # Check different possible response formats based on SDK implementation
+            if hasattr(fills_data, 'fills'):
+                fills = fills_data.fills
+            elif hasattr(fills_data, 'to_dict') and callable(getattr(fills_data, 'to_dict')):
+                # Try converting response to dict first if possible
+                fills_dict = fills_data.to_dict()
+                if 'fills' in fills_dict:
+                    fills = fills_dict['fills']
+            elif isinstance(fills_data, dict) and 'fills' in fills_data:
+                fills = fills_data['fills']
+            elif isinstance(fills_data, list):
+                fills = fills_data
+            else:
+                logger.warning(f"Unexpected fills response format: {type(fills_data)}")
+                return []
+                
+            if not fills:
+                logger.info(f"No fills found for {product_id}")
+                return []
+                
+            # Process each fill into a standardized object for our application
+            processed_fills = []
+            for fill in fills:
+                # Create a simple object with attributes needed by our application
+                from types import SimpleNamespace
+                processed_fill = SimpleNamespace()
+                
+                # Helper function to safely extract attributes from fill object or dict
+                def get_attr(obj, attr, default):
+                    if isinstance(obj, dict):
+                        return obj.get(attr, default)
+                    return getattr(obj, attr, default) if hasattr(obj, attr) else default
+                
+                # Map the fills fields to our expected format
+                processed_fill.order_id = get_attr(fill, 'order_id', '')
+                processed_fill.product_id = get_attr(fill, 'product_id', product_id)
+                processed_fill.side = str(get_attr(fill, 'side', '')).upper()
+                
+                # Size field
+                size = get_attr(fill, 'size', get_attr(fill, 'filled_size', '0'))
+                processed_fill.filled_size = size
+                processed_fill.size = size
+                
+                # Price field
+                price = get_attr(fill, 'price', get_attr(fill, 'average_filled_price', '0'))
+                processed_fill.price = price
+                processed_fill.average_filled_price = price
+                
+                # Fee/commission
+                processed_fill.fees = get_attr(fill, 'commission', get_attr(fill, 'fee', '0'))
+                
+                # Handle timestamp (trade_time or created_time field)
+                trade_time = get_attr(fill, 'trade_time', 
+                              get_attr(fill, 'created_time', 
+                              get_attr(fill, 'trade_timestamp', '')))
+                if trade_time:
+                    try:
+                        # Format expected: "2021-05-31T09:59:59Z"
+                        created_time = datetime.fromisoformat(trade_time.replace('Z', '+00:00'))
+                        processed_fill.created_time = created_time
+                        processed_fill.created_at = created_time
+                    except Exception as e:
+                        logger.warning(f"Error parsing timestamp: {str(e)}")
+                        processed_fill.created_time = datetime.now()
+                        processed_fill.created_at = datetime.now()
+                else:
+                    processed_fill.created_time = datetime.now()
+                    processed_fill.created_at = datetime.now()
+                
+                # For compatibility with code expecting order objects
+                processed_fill.status = 'FILLED'
+                
+                processed_fills.append(processed_fill)
             
             # Sort by creation time (newest first)
-            filled_orders.sort(key=lambda x: x.created_time, reverse=True)
+            processed_fills.sort(key=lambda x: x.created_time, reverse=True)
             
-            if filled_orders:
-                logger.info(f"Found {len(filled_orders)} filled orders for {product_id}")
+            if processed_fills:
+                logger.info(f"Found {len(processed_fills)} filled orders for {product_id}")
             else:
                 logger.info(f"No filled orders found for {product_id}")
                 
-            return filled_orders
+            return processed_fills
+            
         except Exception as e:
             logger.error(f"Error getting filled orders for {product_id}: {str(e)}")
-            raise
+            # Return empty list instead of raising to allow graceful degradation
+            return []
     
     def get_last_filled_buy_order(self, product_id: str):
         """

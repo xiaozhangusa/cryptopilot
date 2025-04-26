@@ -200,6 +200,7 @@ class SwingStrategy:
         # Default to NEUTRAL
         combined_signal = 'NEUTRAL'
         confidence = 0.0
+        signal_priority = 0  # Default no priority
         
         # Extract MACD values for additional analysis
         macd_value = macd_signal['value']
@@ -213,6 +214,7 @@ class SwingStrategy:
             # All indicators agree, so we have high confidence
             confidence = (rsi_confidence + ema_confidence + macd_confidence) * 1.2  # Bonus for agreement
             logger.info(f"Strong agreement: RSI, EMA, and MACD all suggest {combined_signal}")
+            signal_priority = 1  # Priority 1 signal
         
         # Strategy 2: MACD crossover (highest priority)
         elif macd_action != 'NEUTRAL':
@@ -230,6 +232,7 @@ class SwingStrategy:
                 logger.info(f"MACD {macd_action} crossover confirmed by EMA trend")
             
             logger.info(f"MACD {macd_action} signal with histogram: {histogram:.4f}, change: {histogram_change:.4f}")
+            signal_priority = 2  # Priority 2 signal
         
         # Strategy 3: RSI extreme values (medium priority)
         elif rsi_action != 'NEUTRAL':
@@ -258,6 +261,8 @@ class SwingStrategy:
             if (rsi_action == 'BUY' and ema_distance > -3) or (rsi_action == 'SELL' and ema_distance < 3):
                 confidence += 0.1
                 logger.info(f"RSI {rsi_action} has favorable EMA position: {ema_distance:.2f}%")
+                
+            signal_priority = 3  # Priority 3 signal
         
         # Strategy 4: EMA significant crosses (lowest priority)
         elif ema_action != 'NEUTRAL' and abs(ema_distance) < 0.5:
@@ -270,6 +275,7 @@ class SwingStrategy:
                 logger.info(f"EMA {ema_action} confirmed by MACD histogram sign")
             
             logger.info(f"EMA {ema_action} signal with price-to-EMA distance: {ema_distance:.2f}%")
+            signal_priority = 4  # Priority 4 signal
         
         # Strategy 5: MACD histogram turning points (new strategy for more signals)
         elif abs(histogram_change) > abs(histogram) * 0.2:  # 20% change in histogram
@@ -283,16 +289,28 @@ class SwingStrategy:
                 combined_signal = 'SELL'
                 confidence = 0.3 + min(0.3, abs(histogram_change) * 5)
                 logger.info(f"MACD histogram turning down from positive: potential reversal SELL signal")
+                
+            signal_priority = 5  # Priority 5 signal
         
         # Cap confidence at 1.0
         confidence = min(1.0, confidence)
         
         # Require minimum confidence threshold - LOWERED for more frequent signals
         # Lower threshold for both BUY and SELL signals to 0.25 (was 0.3/0.35)
-        min_confidence = 0.25
+        min_confidence = 0.35
         if confidence < min_confidence:
             logger.info(f"Signal {combined_signal} has low confidence ({confidence:.2f}), changing to NEUTRAL")
-            return 'NEUTRAL', confidence
+            combined_signal = 'NEUTRAL'
+            signal_priority = 0  # No priority for NEUTRAL signals
+        
+        # Log the selected priority
+        if signal_priority > 0:
+            logger.info(f"Signal priority level: {signal_priority}")
+        
+        # Update the TradingSignal.indicators dictionary with priority information when it's later created
+        rsi_signal['signal_priority'] = signal_priority
+        ema_signal['signal_priority'] = signal_priority
+        macd_signal['signal_priority'] = signal_priority
             
         return combined_signal, confidence
 
@@ -300,10 +318,10 @@ class SwingStrategy:
         """Print detailed candle analysis and indicator calculations
         
         Args:
-            prices: List of price values
+            prices: List of historical prices
             timestamps: List of corresponding timestamps
-            symbol: Optional trading pair symbol (for display purposes)
-            current_price: Optional real-time price from external source
+            symbol: Trading pair symbol
+            current_price: Optional real-time price from exchange
         """
         if not prices or not timestamps or len(prices) != len(timestamps):
             logger.error("Invalid price or timestamp data")
@@ -628,31 +646,68 @@ class SwingStrategy:
         
         # Add Signal Generation Logic explanation with ASCII art
         print("\n🧠 SIGNAL GENERATION LOGIC:")
-        print("┌───────────────────────────────────────────────────────────────────────┐")
-        print("│ PRIORITY 1: ALL INDICATORS AGREE                                      │")
-        print("│   BUY when: RSI, EMA, MACD all bullish ➡️ High confidence (x1.2)      │")
-        print("│   SELL when: RSI, EMA, MACD all bearish ➡️ High confidence (x1.2)     │")
-        print("│                                                                       │")
-        print("│ PRIORITY 2: MACD CROSSOVER                                           │")
-        print("│   BUY when: MACD crosses above Signal ➡️ Base confidence (x1.5)       │")
-        print("│   SELL when: MACD crosses below Signal ➡️ Base confidence (x1.5)      │")
-        print("│   +RSI/EMA confirmation: Additional confidence bonus                  │")
-        print("│                                                                       │")
-        print("│ PRIORITY 3: EXTREME RSI                                              │")
-        print("│   BUY when: RSI < 25 (deeply oversold) ➡️ Medium confidence (x1.5)    │")
-        print("│   SELL when: RSI > 75 (deeply overbought) ➡️ Medium confidence (x1.5) │")
-        print("│   Regular RSI signals (30/70): Lower confidence                       │")
-        print("│                                                                       │")
-        print("│ PRIORITY 4: EMA CROSSES                                              │")
-        print("│   BUY when: Price crosses above EMA ➡️ Lower confidence               │")
-        print("│   SELL when: Price crosses below EMA ➡️ Lower confidence              │")
-        print("│                                                                       │")
-        print("│ PRIORITY 5: MACD HISTOGRAM CHANGES                                   │")
-        print("│   BUY when: Histogram turns up while negative ➡️ Lower confidence     │")
-        print("│   SELL when: Histogram turns down while positive ➡️ Lower confidence  │")
-        print("│                                                                       │")
-        print("│ MINIMUM CONFIDENCE THRESHOLD: 0.25 (increased frequency)             │")
-        print("└───────────────────────────────────────────────────────────────────────┘")
+        signal_logic = """┌───────────────────────────────────────────────────────────────────────┐
+│ PRIORITY 1: ALL INDICATORS AGREE                                      │
+│   BUY when: RSI, EMA, MACD all bullish ➡️ High confidence (x1.2)      │
+│   SELL when: RSI, EMA, MACD all bearish ➡️ High confidence (x1.2)     │
+│                                                                       │
+│ PRIORITY 2: MACD CROSSOVER                                           │
+│   BUY when: MACD crosses above Signal ➡️ Base confidence (x1.5)       │
+│   SELL when: MACD crosses below Signal ➡️ Base confidence (x1.5)      │
+│   +RSI/EMA confirmation: Additional confidence bonus                  │
+│                                                                       │
+│ PRIORITY 3: EXTREME RSI                                              │
+│   BUY when: RSI < 25 (deeply oversold) ➡️ Medium confidence (x1.5)    │
+│   SELL when: RSI > 75 (deeply overbought) ➡️ Medium confidence (x1.5) │
+│   Regular RSI signals (30/70): Lower confidence                       │
+│                                                                       │
+│ PRIORITY 4: EMA CROSSES                                              │
+│   BUY when: Price crosses above EMA ➡️ Lower confidence               │
+│   SELL when: Price crosses below EMA ➡️ Lower confidence              │
+│                                                                       │
+│ PRIORITY 5: MACD HISTOGRAM CHANGES                                   │
+│   BUY when: Histogram turns up while negative ➡️ Lower confidence     │
+│   SELL when: Histogram turns down while positive ➡️ Lower confidence  │
+│                                                                       │
+│ MINIMUM CONFIDENCE THRESHOLD: 0.35 (increased frequency)             │
+└───────────────────────────────────────────────────────────────────────┘"""
+        print(signal_logic)
+        
+        # Generate signal to check priority
+        rsi_signal = self.rsi.get_signal(prices, timestamps, show_calculations=False)
+        ema_signal = self.ema.get_signal(prices, timestamps)
+        macd_signal = self.macd.get_signal(prices, timestamps)
+        
+        signal, confidence = self._combine_signals(rsi_signal, ema_signal, macd_signal)
+        
+        # Get the signal priority from the updated indicators
+        signal_priority = rsi_signal.get('signal_priority', 0)
+        
+        # Only display the conclusion if we have a non-NEUTRAL signal with a priority
+        if signal != 'NEUTRAL' and signal_priority > 0:
+            print("\n🎯 SIGNAL CONCLUSION:")
+            
+            # Create ASCII boxes for priority visualization
+            boxes = ["□", "□", "□", "□", "□"]
+            if signal_priority > 0:
+                boxes[signal_priority-1] = "■"
+            
+            # Select icon based on signal type
+            icon = "🔴" if signal == "SELL" else "🟢"
+            
+            print(f"""┌─────────────────────────────────────────────────────────┐
+│                                                         │
+│  {icon} {signal} SIGNAL DETECTED - PRIORITY {signal_priority}                {icon} │
+│                                                         │
+│  Confidence: {confidence:.2f}                                   │
+│                                                         │
+│  Priority Level:  {boxes[0]}   {boxes[1]}   {boxes[2]}   {boxes[3]}   {boxes[4]}                        │
+│                   1   2   3   4   5                      │
+│                   ↑                                      │
+│               Highest → → → → → → → → Lowest            │
+│           (1 > 2 > 3 > 4 > 5 in importance)             │
+│                                                         │
+└─────────────────────────────────────────────────────────┘""")
     
     def analyze_rsi_swings(self, prices: List[float], timestamps: List[int]) -> dict:
         """Analyze RSI swings from oversold to overbought conditions

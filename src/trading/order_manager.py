@@ -209,6 +209,138 @@ class FillData:
     def __repr__(self):
         return f"Fill({self.side} {self.size} @ {self.price}, created={self.created_at.strftime('%Y-%m-%d %H:%M:%S')})"
 
+class OrderStack:
+    """Stack-based data structure to track buy orders for LIFO matching with sell orders"""
+    def __init__(self):
+        # Dict mapping product_id to a list of FillData ordered with newest at the top (LIFO stack)
+        self.buy_orders: Dict[str, List[FillData]] = {}
+        # Track when the stack was last refreshed
+        self.last_refresh: Dict[str, datetime] = {}
+        # TTL for refreshing from API (5 minutes)
+        self.refresh_ttl = 300
+        
+    def refresh_from_api(self, product_id: str, client: CoinbaseAdvancedClient) -> bool:
+        """Refresh the buy order stack from the API"""
+        try:
+            current_time = datetime.now()
+            
+            # Skip refresh if we did it recently
+            if (product_id in self.last_refresh and 
+                (current_time - self.last_refresh[product_id]).total_seconds() < self.refresh_ttl):
+                return False
+                
+            logger.info(f"Refreshing order stack for {product_id} from API")
+            
+            # Get filled orders from the API
+            filled_orders = client.get_filled_orders(product_id=product_id, limit=50)
+            
+            # Convert to FillData objects
+            fill_data_list = []
+            for order in filled_orders:
+                side = getattr(order, 'side', '').upper()
+                if side != 'BUY':
+                    continue  # Skip non-buy orders
+                    
+                size = float(getattr(order, 'filled_size', 0))
+                price = float(getattr(order, 'price', 0))
+                created_at = getattr(order, 'created_at', current_time)
+                if isinstance(created_at, str):
+                    try:
+                        created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    except:
+                        created_at = current_time
+                order_id = getattr(order, 'order_id', '')
+                fees = float(getattr(order, 'fees', 0))
+                
+                fill_data = FillData(
+                    order_id=order_id,
+                    product_id=product_id,
+                    side=side,
+                    size=size,
+                    price=price,
+                    created_at=created_at,
+                    fees=fees
+                )
+                fill_data_list.append(fill_data)
+            
+            # Find the most recent sell order as cutoff
+            cutoff_time = None
+            for order in filled_orders:
+                if getattr(order, 'side', '').upper() == 'SELL':
+                    cutoff_time = getattr(order, 'created_at', None)
+                    if isinstance(cutoff_time, str):
+                        try:
+                            cutoff_time = datetime.fromisoformat(cutoff_time.replace('Z', '+00:00'))
+                        except:
+                            cutoff_time = None
+                    break
+            
+            # Filter buy orders to only include those after the most recent sell
+            active_buy_orders = []
+            for order in fill_data_list:
+                if cutoff_time and order.created_at <= cutoff_time:
+                    continue
+                active_buy_orders.append(order)
+            
+            # Sort newest first (LIFO - Last In, First Out)
+            # This ensures the most recent buy order is at the top of the stack
+            active_buy_orders.sort(key=lambda x: x.created_at, reverse=True)
+            
+            # Update the stack
+            self.buy_orders[product_id] = active_buy_orders
+            self.last_refresh[product_id] = current_time
+            
+            logger.info(f"Refreshed {product_id} order stack with {len(active_buy_orders)} active buy orders")
+            return True
+        
+        except Exception as e:
+            logger.error(f"Error refreshing order stack: {str(e)}")
+            return False
+    
+    def push_buy_order(self, fill_data: FillData) -> None:
+        """Add a new buy order to the top of the stack (LIFO - most recent first)"""
+        product_id = fill_data.product_id
+        if product_id not in self.buy_orders:
+            self.buy_orders[product_id] = []
+        
+        # Insert at the beginning (top of stack - LIFO)
+        self.buy_orders[product_id].insert(0, fill_data)
+        logger.info(f"Added buy order to stack: {fill_data}")
+    
+    def peek_latest_buy(self, product_id: str) -> Optional[FillData]:
+        """Look at the most recent buy order (top of stack) without removing it"""
+        if product_id not in self.buy_orders or not self.buy_orders[product_id]:
+            return None
+        
+        # Return the first item (top of stack - most recent)
+        return self.buy_orders[product_id][0]
+    
+    def pop_latest_buy(self, product_id: str) -> Optional[FillData]:
+        """Remove and return the most recent buy order (top of stack)"""
+        if product_id not in self.buy_orders or not self.buy_orders[product_id]:
+            return None
+        
+        # Pop the first item (top of stack - most recent)
+        return self.buy_orders[product_id].pop(0)
+    
+    def is_sell_profitable(self, product_id: str, sell_price: float) -> bool:
+        """Check if selling at the given price would be profitable compared to the latest buy"""
+        latest_buy = self.peek_latest_buy(product_id)
+        if not latest_buy:
+            return False
+        
+        # Require some minimum profit (e.g., 0.5% to cover fees)
+        min_profit_pct = 0.005
+        min_profitable_price = latest_buy.price * (1 + min_profit_pct)
+        
+        return sell_price > min_profitable_price
+    
+    def get_stack_size(self, product_id: str) -> int:
+        """Get the number of buy orders in the stack for a product"""
+        if product_id not in self.buy_orders:
+            return 0
+        return len(self.buy_orders[product_id])
+
 class OrderManager:
     def __init__(self, client: CoinbaseAdvancedClient):
         self.client = client
@@ -225,6 +357,9 @@ class OrderManager:
         
         # Track the last buy order index that was sold (for FIFO selling)
         self._last_matched_buy_index: Dict[str, int] = {}  # product_id -> index
+
+        # Initialize order stack
+        self.order_stack = OrderStack()
 
     def get_order_cooldown_period(self, timeframe: Timeframe, order_side: str) -> int:
         """
@@ -554,101 +689,98 @@ class OrderManager:
             strategy_description = f"Using {balance_fraction*100:.0f}% of available {quote_asset} balance ({available_balance:.2f})"
             
         else:  # SELL
-            # Calculate average purchase price for profit check
-            avg_purchase_price = self.get_average_purchase_price(product_id)
+            # Refresh the order stack from the API if needed
+            self.order_stack.refresh_from_api(product_id, self.client)
             
-            # Only sell if current price is profitable (compared to average purchase)
-            if avg_purchase_price > 0 and current_price < avg_purchase_price:
-                logger.warning(
-                    f"Not creating sell order: Current price (${current_price:.2f}) is below "
-                    f"average purchase price (${avg_purchase_price:.2f})"
+            # Use stack-based LIFO approach for SELL orders
+            # This matches the most recent buy order (Last In, First Out)
+            latest_buy = self.order_stack.peek_latest_buy(product_id)
+            
+            if latest_buy:
+                # Check if selling at current price would be profitable
+                if not self.order_stack.is_sell_profitable(product_id, limit_price):
+                    logger.warning(
+                        f"Not creating sell order: Current price (${limit_price:.2f}) is not profitable "
+                        f"compared to latest buy price (${latest_buy.price:.2f})"
+                    )
+                    print(f"\n⚠️ Price not profitable for selling {product_id}:")
+                    print(f"  Current price: ${current_price:.2f}")
+                    print(f"  Limit price: ${limit_price:.2f}")
+                    print(f"  Latest buy price: ${latest_buy.price:.2f}")
+                    return None
+                
+                # Use the exact size from the buy order
+                base_amount = latest_buy.size
+                
+                # Apply price percentage to the current price
+                adjusted_price = current_price * price_percentage
+                
+                # Format price to 2 decimal places for USD
+                formatted_price = "{:.2f}".format(adjusted_price)
+                
+                # Calculate profit percentage
+                profit_pct = (adjusted_price / latest_buy.price - 1) * 100
+                
+                print(f"\n📊 Creating LIFO-matched sell order for {product_id}:")
+                print(f"  ● Matching the most recent buy order from {latest_buy.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
+                print(f"  ● Order size: {base_amount:.8f} {base_asset}")
+                print(f"  ● Buy price: ${latest_buy.price:.2f}")
+                print(f"  ● Sell price: ${adjusted_price:.2f}")
+                print(f"  ● Profit margin: {profit_pct:.2f}%")
+                
+                # Create order request
+                order = OrderRequest(
+                    product_id=product_id,
+                    side='SELL',
+                    order_type='LIMIT',
+                    base_size=str(base_amount),
+                    limit_price=formatted_price,
+                    time_in_force=time_in_force
                 )
-                print(f"\n⚠️ Price not profitable for selling {product_id}:")
-                print(f"  Current price: ${current_price:.2f}")
-                print(f"  Avg purchase price: ${avg_purchase_price:.2f}")
-                print(f"  Price difference: ${current_price - avg_purchase_price:.2f}")
-                return None
+                return order
+            else:
+                # FALLBACK: No buy orders in stack, but check if there's an actual balance we can use
+                asset_account = self.balance_manager.get_balance(base_asset)
+                available_balance = float(asset_account.available_balance) if asset_account else 0
                 
-            # Try to implement FIFO selling strategy - get the next buy order to match
-            try:
-                fifo_match = self.get_next_fifo_buy_order(product_id, current_price)
-                
-                if fifo_match:
-                    # We found a buy order to match
-                    size, buy_price, buy_date = fifo_match
+                if available_balance > 0:
+                    # We have a balance even though our stack is empty, so we can sell some of it
+                    base_amount = available_balance * balance_fraction
+                    
+                    if base_amount <= 0:
+                        logger.warning(f"Cannot create SELL order: insufficient {base_asset} balance ({available_balance:.8f})")
+                        return None
                     
                     # Apply price percentage to the current price
                     adjusted_price = current_price * price_percentage
-                    
-                    # Format price to 2 decimal places for USD
                     formatted_price = "{:.2f}".format(adjusted_price)
                     
-                    # Calculate profit percentage
-                    profit_pct = (adjusted_price / buy_price - 1) * 100
-                    
-                    print(f"\n📊 Creating FIFO-matched sell order for {product_id}:")
-                    print(f"  ● Matching buy order from {buy_date.strftime('%Y-%m-%d %H:%M:%S')}")
-                    print(f"  ● Order size: {size:.8f} {base_asset}")
-                    print(f"  ● Buy price: ${buy_price:.2f}")
+                    print(f"\n📊 Creating SELL order from account balance (stack empty):")
+                    print(f"  ● Available balance: {available_balance:.8f} {base_asset}")
+                    print(f"  ● Order size: {base_amount:.8f} {base_asset} ({balance_fraction*100:.0f}% of balance)")
+                    print(f"  ● Market price: ${current_price:.2f}")
                     print(f"  ● Sell price: ${adjusted_price:.2f}")
-                    print(f"  ● Profit margin: {profit_pct:.2f}%")
+                    print(f"  ⚠️ Note: Selling from account balance since no buy orders in stack")
                     
                     # Create order request
                     order = OrderRequest(
                         product_id=product_id,
                         side='SELL',
                         order_type='LIMIT',
-                        base_size=str(size),
+                        base_size=str(base_amount),
                         limit_price=formatted_price,
                         time_in_force=time_in_force
                     )
                     return order
                 else:
-                    logger.info(f"No matching buy orders found for FIFO sell - falling back to standard approach")
-                    
-            except PriceNotProfitableError as e:
-                logger.info(f"FIFO sell strategy not applicable: {str(e)}")
-                # Fall through to standard approach
-                
-            # Fall back to standard sell strategy if FIFO approach fails
+                    # No buy orders in stack AND no balance - truly can't sell anything
+                    logger.warning(f"No buy orders in stack for {product_id} and no balance available - skipping sell signal")
+                    print(f"\n⚠️ Cannot create sell order for {product_id}:")
+                    print(f"  ● No matching buy orders in stack")
+                    print(f"  ● No {base_asset} balance available in account")
+                    print(f"  ● Skipping this sell signal and waiting for the next opportunity")
+                    return None
             
-            # For sell orders, try to get the last buy order
-            last_buy_order = None
-            last_buy_size = None
-            try:
-                last_buy_order = self.client.get_last_filled_buy_order(product_id)
-                if last_buy_order and hasattr(last_buy_order, 'filled_size'):
-                    last_buy_size = float(last_buy_order.filled_size)
-                    print(f"Last buy order size: {last_buy_size} {base_asset}")
-            except Exception as e:
-                logger.warning(f"Could not get last filled buy order: {str(e)}")
-            
-            # Get current balance of base asset
-            asset_account = self.balance_manager.get_balance(base_asset)
-            available_balance = float(asset_account.available_balance) if asset_account else 0
-            
-            # Determine base amount to sell based on the requested strategy:
-            # min(last buy order size, available balance)
-            if last_buy_size is not None:
-                base_amount = min(available_balance, last_buy_size) * balance_fraction
-                strategy_description = (
-                    f"Using min(last buy order size, available balance) * balance_fraction\n"
-                    f"= min({last_buy_size:.8f}, {available_balance:.8f}) * {balance_fraction:.2f}\n"
-                    f"= {base_amount:.8f} {base_asset}"
-                )
-            else:
-                # Just use available balance
-                base_amount = available_balance * balance_fraction
-                strategy_description = (
-                    f"Using {balance_fraction*100:.0f}% of available {base_asset} balance ({available_balance:.8f})\n"
-                    f"= {base_amount:.8f} {base_asset}"
-                )
-            
-            # Check if we have enough to sell
-            if base_amount <= 0:
-                logger.warning(f"Cannot create SELL order: insufficient {base_asset} balance ({available_balance:.8f})")
-                return None
-        
         # Round to 8 decimal places for crypto amounts
         base_amount = round(base_amount, 8)
         
@@ -661,12 +793,6 @@ class OrderManager:
         print(f"  ● Limit price: ${limit_price:.2f} ({price_percentage*100:.0f}% of market price)")
         print(f"  ● Available balance: {available_balance:.8f} {base_asset if side == 'SELL' else quote_asset}")
         print(f"  ● {strategy_description}")
-        
-        # For SELL orders, also display profitability info
-        if side == 'SELL' and avg_purchase_price > 0:
-            profit_pct = (limit_price / avg_purchase_price - 1) * 100
-            print(f"  ● Avg purchase price: ${avg_purchase_price:.2f}")
-            print(f"  ● Profit margin: {profit_pct:.2f}%")
         
         # Create order request
         order = OrderRequest(
@@ -681,8 +807,8 @@ class OrderManager:
         return order
         
     def place_order(self, order: OrderRequest, timeframe: Optional[Timeframe] = None, bypass_cooldown: bool = False):
-        """Place an order using the client API, with cooldown checks
-
+        """Place an order using the client API, with cooldown checks and update order stack for successful orders
+        
         Args:
             order: Order request parameters
             timeframe: Current trading timeframe (needed for cooldown checks)
@@ -794,7 +920,7 @@ class OrderManager:
             print(f"  {quote_asset}: ${projected_quote_balance:.2f}")
             print("="*50)
             
-            # Perform validation
+            # Validate the order
             try:
                 self.validator.validate_order(order)
                 logger.info("Balance validation passed ✅")
@@ -810,15 +936,6 @@ class OrderManager:
             # Place order
             if order.order_type == 'LIMIT':
                 response = self.client.create_limit_order(order)
-                # Debug log the response structure
-                logger.debug(f"RESPONSE TYPE: {type(response)}")
-                logger.debug(f"RESPONSE STRUCTURE: {response}")
-                if isinstance(response, dict):
-                    logger.debug(f"RESPONSE KEYS: {list(response.keys())}")
-                    if 'success_response' in response:
-                        logger.debug(f"SUCCESS_RESPONSE STRUCTURE: {response['success_response']}")
-                    if 'error_response' in response:
-                        logger.debug(f"ERROR_RESPONSE STRUCTURE: {response['error_response']}")
                 
                 # Check if the order was successful
                 order_successful = False
@@ -830,6 +947,53 @@ class OrderManager:
                 # Update the last order time if the order was successful
                 if order_successful:
                     self.update_last_order_time(order.product_id, order.side)
+                    
+                    # Handle stack updates for successful orders
+                    if order.side == 'BUY':
+                        # Add the buy order to the top of the stack (LIFO)
+                        current_time = datetime.now()
+                        order_id = None
+                        if isinstance(response, dict) and 'success_response' in response:
+                            order_id = response['success_response'].get('order_id', '')
+                        elif hasattr(response, 'order_id'):
+                            order_id = response.order_id
+                            
+                        # Create fill data for the successful order
+                        fill_data = FillData(
+                            order_id=order_id or str(uuid.uuid4()),  # Use UUID if we don't have an order ID
+                            product_id=order.product_id,
+                            side='BUY',
+                            size=float(order.base_size),
+                            price=float(order.limit_price),
+                            created_at=current_time,
+                            fees=0.0  # We don't know fees yet for a just-placed order
+                        )
+                        
+                        # Add to the stack (LIFO - most recent at the top)
+                        self.order_stack.push_buy_order(fill_data)
+                        logger.info(f"Added new buy order to stack: {order.product_id} {order.base_size} @ {order.limit_price}")
+                        
+                    elif order.side == 'SELL':
+                        # Pop the most recent buy order from the stack since it's now being sold (LIFO)
+                        popped_buy = self.order_stack.pop_latest_buy(order.product_id)
+                        if popped_buy:
+                            logger.info(f"Popped most recent buy order from stack after successful sell: {popped_buy}")
+                            
+                            # Calculate profit
+                            buy_price = popped_buy.price
+                            sell_price = float(order.limit_price)
+                            profit_pct = (sell_price / buy_price - 1) * 100
+                            profit_amount = (sell_price - buy_price) * float(order.base_size)
+                            
+                            print(f"\n💰 PROFIT TRACKING (LIFO Stack-based):")
+                            print(f"  Buy: {popped_buy.size} @ ${buy_price:.2f} on {popped_buy.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
+                            print(f"  Sell: {order.base_size} @ ${sell_price:.2f}")
+                            print(f"  Profit: ${profit_amount:.2f} ({profit_pct:.2f}%)")
+                            
+                            # Calculate remaining buy orders for tracking
+                            remaining = self.order_stack.get_stack_size(order.product_id)
+                            if remaining > 0:
+                                print(f"  Remaining buy orders in stack: {remaining}")
                 
                 # Modify the response for simulation mode to make it easier to work with
                 if trading_mode.lower() == 'simulation' and isinstance(response, dict) and response.get('success'):
@@ -841,24 +1005,12 @@ class OrderManager:
                     if 'success_response' in response and 'order_id' in response['success_response']:
                         order_id = response['success_response']['order_id']
                         simple_response.order_id = order_id
-                        logger.debug(f"SIMULATION MODE: Creating simplified response with order_id: {order_id}")
                     else:
                         simulated_id = "simulated-order-" + str(uuid.uuid4())
                         simple_response.order_id = simulated_id
-                        logger.debug(f"SIMULATION MODE: Creating simplified response with generated order_id: {simulated_id}")
                     
-                    # Debug output to verify the simple_response object
-                    logger.debug(f"SIMPLIFIED RESPONSE TYPE: {type(simple_response)}")
-                    logger.debug(f"SIMPLIFIED RESPONSE ATTRIBUTES: {dir(simple_response)}")
-                    logger.debug(f"HAS order_id ATTRIBUTE: {hasattr(simple_response, 'order_id')}")
-                    if hasattr(simple_response, 'order_id'):
-                        logger.debug(f"order_id VALUE: {simple_response.order_id}")
-                    
-                    logger.info(f"Transformed API response to simple object for simulation mode")
                     return simple_response
                 
-                # Add debug for non-simulation or unsuccessful response
-                logger.debug(f"Returning original response: simulation_mode={trading_mode.lower()=='simulation'}, success={response.get('success', False) if isinstance(response, dict) else 'N/A'}")
                 return response
                 
             # For market orders
@@ -866,6 +1018,11 @@ class OrderManager:
             
             # Update the last order time if we got here (means the order was successful)
             self.update_last_order_time(order.product_id, order.side)
+            
+            # Handle stack updates for market orders too
+            if hasattr(response, 'success') and response.success:
+                # ... similar stack update logic as for limit orders ...
+                pass
             
             return response
             

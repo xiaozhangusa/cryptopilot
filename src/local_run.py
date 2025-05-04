@@ -87,6 +87,17 @@ def main():
         # Initialize order manager
         order_manager = OrderManager(client)
         
+        # Initialize order stack with historical data
+        logger.info(f"Initializing order stack for {symbol}...")
+        order_manager.order_stack.refresh_from_api(symbol, client)
+        stack_size = order_manager.order_stack.get_stack_size(symbol)
+        logger.info(f"Order stack initialized with {stack_size} unfilled buy orders")
+        
+        if stack_size > 0:
+            latest_buy = order_manager.order_stack.peek_latest_buy(symbol)
+            if latest_buy:
+                logger.info(f"Latest buy order in stack (most recent - LIFO): {latest_buy.size} @ ${latest_buy.price:.2f} from {latest_buy.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
+        
         # Log cooldown periods for reference
         buy_cooldown = order_manager.get_order_cooldown_period(timeframe, 'BUY')
         sell_cooldown = order_manager.get_order_cooldown_period(timeframe, 'SELL')
@@ -260,12 +271,12 @@ def main():
                                     
                                     try:
                                         # Create a sell order using the enhanced smart limit order method
-                                        # which now implements one-at-a-time FIFO matching
+                                        # which now implements LIFO stack-based matching
                                         order = order_manager.create_smart_limit_order(
                                             product_id=trading_pair,
                                             side='SELL',
-                                            price_percentage=1.001,  # 100.5% of current price for sell limit order
-                                            balance_fraction=1.0    # Use full size of matched buy order or available balance
+                                            price_percentage=1.001,  # 100.1% of current price for sell limit order
+                                            balance_fraction=1.0    # Use full size of matched buy order
                                         )
                                         
                                         if order:  # Only proceed if an order was created
@@ -283,11 +294,38 @@ def main():
                                             else:
                                                 logger.warning(f"❌ Order not placed: {response}")
                                         else:
-                                            # This could be due to:
-                                            # 1. Price not being profitable compared to average purchase price
-                                            # 2. No matching buy orders found in FIFO approach
-                                            # 3. Insufficient balance
-                                            logger.warning(f"❌ No sell order created for {trading_pair}")
+                                            # No order was created - check why
+                                            # Get stack and balance info for better diagnostics
+                                            stack_size = order_manager.order_stack.get_stack_size(trading_pair)
+                                            base_asset = trading_pair.split('-')[0]
+                                            asset_account = order_manager.balance_manager.get_balance(base_asset)
+                                            available_balance = float(asset_account.available_balance) if asset_account else 0
+                                            
+                                            # Provide specific feedback based on the situation
+                                            if stack_size == 0 and available_balance == 0:
+                                                print(f"⚠️ Sell signal ignored: No {base_asset} to sell (empty stack and zero balance)")
+                                            elif stack_size == 0 and available_balance > 0:
+                                                print(f"⚠️ Sell signal ignored: You have {available_balance} {base_asset} but the sell price may not be favorable")
+                                            elif stack_size > 0:
+                                                # We have orders in the stack but didn't sell - must be price not profitable
+                                                latest_buy = order_manager.order_stack.peek_latest_buy(trading_pair)
+                                                if latest_buy:
+                                                    current_price = order_manager.client.get_product_price(trading_pair)
+                                                    profit_pct = (current_price / latest_buy.price - 1) * 100
+                                                    print(f"⚠️ Sell signal ignored: Current price not profitable")
+                                                    print(f"  Buy price: ${latest_buy.price:.2f}")
+                                                    print(f"  Current price: ${current_price:.2f}")
+                                                    print(f"  Profit/loss: {profit_pct:.2f}%")
+                                                    print(f"  Need at least 0.5% profit to cover fees")
+                                            
+                                            # Display the stack status for reference
+                                            print(f"ℹ️ System Status:")
+                                            print(f"  Buy orders in stack: {stack_size}")
+                                            print(f"  {base_asset} balance: {available_balance}")
+                                            if stack_size > 0:
+                                                latest_buy = order_manager.order_stack.peek_latest_buy(trading_pair)
+                                                if latest_buy:
+                                                    print(f"  Most recent buy: {latest_buy.size} @ ${latest_buy.price:.2f} on {latest_buy.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
                                     except OrderCooldownError as e:
                                         print(f"\n⏳ Order placement throttled: {str(e)}")
                                         print(f"This prevents overtrading and follows best practices for the {timeframe.value} timeframe")
